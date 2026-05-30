@@ -1,0 +1,9 @@
+node_modules/
+.pi-lens/
+*.tgz
+.DS_Store
+.env
+.env.*
+!.env.example
+autoresearch.jsonl
+autoresearch.ideas.md

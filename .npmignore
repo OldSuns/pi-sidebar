@@ -1,0 +1,5 @@
+node_modules/
+.pi-lens/
+autoresearch.jsonl
+autoresearch.ideas.md
+*.tgz
