@@ -61,6 +61,24 @@ const SIDEBAR_SECTIONS: Array<(section: SidebarSectionContext) => void> = [
 	renderHintSection,
 ];
 
+export function setSidebarCollapsed(
+	state: Pick<SidebarState, "enabled" | "collapsed">,
+	collapsed: boolean,
+): void {
+	state.enabled = true;
+	state.collapsed = collapsed;
+}
+
+export function toggleSidebarCollapsed(
+	state: Pick<SidebarState, "enabled" | "collapsed">,
+): void {
+	if (!state.enabled) {
+		setSidebarCollapsed(state, false);
+		return;
+	}
+	setSidebarCollapsed(state, !state.collapsed);
+}
+
 export class SidebarComponent implements Component {
 	constructor(
 		private readonly getContext: () => ExtensionContext | undefined,
@@ -72,6 +90,8 @@ export class SidebarComponent implements Component {
 	invalidate(): void {}
 
 	render(width: number): string[] {
+		if (this.state.collapsed) return this.renderCollapsed(width);
+
 		const ctx = this.getContext();
 		const buffer = this.state.fullHeight ? this.options.buffer : 0;
 		const contentWidth = Math.max(8, width - buffer);
@@ -109,6 +129,24 @@ export class SidebarComponent implements Component {
 		}
 		return lines;
 	}
+
+	private renderCollapsed(width: number): string[] {
+		const rail = (label = "") => {
+			const markerText = label ? "◀│" : " │";
+			const marker = this.theme.fg(
+				label ? "accent" : "borderMuted",
+				markerText,
+			);
+			const line = " ".repeat(Math.max(0, width - markerText.length)) + marker;
+			return padAnsi(truncateToWidth(line, width, ""), width);
+		};
+		if (this.state.fullHeight) {
+			const lines = Array.from({ length: this.options.fillRows }, () => rail());
+			if (lines.length > 1) lines[1] = rail("restore");
+			return lines;
+		}
+		return [rail(), rail("restore"), rail()];
+	}
 }
 
 export function piTitle(ctx: ExtensionContext): string {
@@ -139,6 +177,7 @@ export default function sidebarPlugin(pi: ExtensionAPI) {
 
 	const state: SidebarState = {
 		enabled: envBool("PI_SIDEBAR_ENABLED", true),
+		collapsed: false,
 		gitDetail: envBool("PI_SIDEBAR_GIT_DETAIL", true),
 		fullHeight: envBool("PI_SIDEBAR_FULL_HEIGHT", false),
 		git: DEFAULT_GIT,
@@ -347,26 +386,37 @@ export default function sidebarPlugin(pi: ExtensionAPI) {
 
 	pi.registerCommand("sidebar", {
 		description:
-			"Toggle or configure the pi sidebar: /sidebar [on|off|toggle|status|full|floating]",
+			"Toggle or configure the pi sidebar: /sidebar [collapse|expand|on|off|status|full|floating]",
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
 			currentCtx = ctx;
 			startSidebar(ctx);
 			const action = args.trim().toLowerCase() || "toggle";
-			if (action === "on") state.enabled = true;
+			if (action === "on") setSidebarCollapsed(state, false);
 			else if (action === "off") state.enabled = false;
+			else if (action === "collapse" || action === "collapsed")
+				setSidebarCollapsed(state, true);
+			else if (action === "expand" || action === "expanded")
+				setSidebarCollapsed(state, false);
 			else if (action === "full" || action === "full-height")
 				state.fullHeight = true;
 			else if (action === "floating" || action === "window")
 				state.fullHeight = false;
 			else if (action === "status") {
 				ctx.ui.notify(
-					`Sidebar is ${state.enabled ? "on" : "off"}; layout is ${state.fullHeight ? "full-height" : "floating"}; autohide while working is ${autohideWorking ? "on" : "off"}; git detail is ${state.gitDetail ? "on" : "off"}.`,
+					`Sidebar is ${state.enabled ? "on" : "off"}; ${state.collapsed ? "collapsed" : "expanded"}; layout is ${state.fullHeight ? "full-height" : "floating"}; autohide while working is ${autohideWorking ? "on" : "off"}; git detail is ${state.gitDetail ? "on" : "off"}.`,
 					"info",
 				);
 				return;
-			} else state.enabled = !state.enabled;
+			} else if (action === "toggle") toggleSidebarCollapsed(state);
+			else {
+				ctx.ui.notify(`Unknown sidebar option: ${action}`, "warning");
+				return;
+			}
 			applyVisibility();
-			ctx.ui.notify(`Sidebar ${state.enabled ? "enabled" : "hidden"}`, "info");
+			ctx.ui.notify(
+				`Sidebar ${state.enabled ? (state.collapsed ? "collapsed" : "enabled") : "hidden"}`,
+				"info",
+			);
 		},
 	});
 
@@ -392,11 +442,11 @@ export default function sidebarPlugin(pi: ExtensionAPI) {
 	});
 
 	pi.registerShortcut("ctrl+shift+s", {
-		description: "Toggle pi sidebar",
+		description: "Collapse or expand pi sidebar",
 		handler: async (ctx: ExtensionContext) => {
 			currentCtx = ctx;
 			startSidebar(ctx);
-			state.enabled = !state.enabled;
+			toggleSidebarCollapsed(state);
 			applyVisibility();
 		},
 	});

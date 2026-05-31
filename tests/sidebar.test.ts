@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import {
 	SidebarComponent,
 	envBool,
@@ -9,7 +10,9 @@ import {
 	padAnsi,
 	parseNumstat,
 	parseShortstat,
+	setSidebarCollapsed,
 	shouldHideSidebar,
+	toggleSidebarCollapsed,
 	type GitState,
 	type SidebarState,
 } from "../extensions/sidebar.js";
@@ -28,6 +31,7 @@ const theme = {
 function state(overrides: Partial<SidebarState> = {}): SidebarState {
 	return {
 		enabled: true,
+		collapsed: false,
 		gitDetail: true,
 		fullHeight: true,
 		git: {
@@ -115,6 +119,18 @@ describe("configuration helpers", () => {
 		expect(envSignedInt("PI_TEST_SIGNED_INT", -6)).toBe(-6);
 	});
 
+	it("uses one collapsed state for slash commands and keyboard controls", () => {
+		const sidebar = state({ enabled: false, collapsed: true });
+		setSidebarCollapsed(sidebar, false);
+		expect(sidebar).toMatchObject({ enabled: true, collapsed: false });
+
+		toggleSidebarCollapsed(sidebar);
+		expect(sidebar).toMatchObject({ enabled: true, collapsed: true });
+
+		toggleSidebarCollapsed(sidebar);
+		expect(sidebar).toMatchObject({ enabled: true, collapsed: false });
+	});
+
 	it("hides the sidebar while streaming when autohide is enabled", () => {
 		expect(shouldHideSidebar({ enabled: true, isStreaming: true }, true)).toBe(
 			true,
@@ -189,6 +205,23 @@ describe("SidebarComponent rendering", () => {
 		expect(rendered.join("\n")).toContain("+2 -1");
 		expect(rendered.join("\n")).toContain("extensions/sidebar.ts");
 		expect(rendered.join("\n")).toContain("/sidebar status");
+	});
+
+	it("keeps long git rows within the sidebar bounds", () => {
+		const rendered = component(
+			{
+				files: [
+					{
+						code: "M",
+						path: "internal/admin/chat_conversations/really-long-file-name.ts",
+						delta: "+7/-0",
+					},
+				],
+			},
+			{ fullHeight: false },
+		).render(34);
+		expect(rendered.every((line) => visibleWidth(line) <= 34)).toBe(true);
+		expect(rendered.join("\n")).toContain("+7/-0");
 	});
 
 	it("colors add and delete portions of per-file deltas", () => {
@@ -296,5 +329,25 @@ describe("SidebarComponent rendering", () => {
 		expect(rendered[1]).toMatch(/^│ Model/);
 		expect(rendered.at(-1)).toMatch(/^│\s*$/);
 		expect(rendered.at(-2)).not.toMatch(/^│\s*$/);
+	});
+
+	it("renders a narrow restore bar when collapsed", () => {
+		const floating = component(
+			{},
+			{ collapsed: true, fullHeight: false },
+		).render(10);
+		expect(floating).toHaveLength(3);
+		expect(floating.join("\n")).toContain("◀│");
+		expect(floating[0]).toBe("         │");
+		expect(floating[1]).toBe("        ◀│");
+		expect(floating.join("\n")).not.toContain("Model");
+
+		const fullHeight = component(
+			{},
+			{ collapsed: true, fullHeight: true },
+		).render(4);
+		expect(fullHeight).toHaveLength(24);
+		expect(fullHeight.join("\n")).toContain("◀");
+		expect(fullHeight.join("\n")).not.toContain("Model");
 	});
 });

@@ -14,6 +14,7 @@ export type GitState = {
 
 export type SidebarState = {
 	enabled: boolean;
+	collapsed: boolean;
 	gitDetail: boolean;
 	fullHeight: boolean;
 	git: GitState;

@@ -72,8 +72,13 @@ Mitigations already present:
 
 Current pi overlay components receive render width but not terminal height. Full-height mode emits filler rows (`PI_SIDEBAR_FILL_ROWS`, default 200) and relies on overlay clipping. This is cheap for normal terminal sizes, but it is still a workaround. If terminals become extremely tall, users can increase `PI_SIDEBAR_FILL_ROWS`; if render volume matters, they can reduce it or use `/sidebar floating`.
 
+### Future mouse interaction
+
+Sidebar visibility is keyboard-first (`ctrl+shift+s`, `/sidebar collapse`, `/sidebar expand`). Mouse click support is intentionally not implemented in this plugin version: terminal mouse reporting is global, interferes with normal wheel scrolling, and proved unreliable for non-capturing overlays. A future pi core implementation should provide scoped non-capturing overlay click regions, or a way to forward wheel events, before the sidebar reintroduces click hide/restore.
+
 ### Recommended future tuning
 
+- Add first-class/scoped mouse click support in pi core before reintroducing sidebar click affordances.
 - Add optional event-driven git refresh when pi exposes filesystem/git events.
 - Cache git output and skip render requests when state is unchanged.
 - Add a max git status timeout/env override if users report large-repo latency.

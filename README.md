@@ -18,6 +18,7 @@ Floating right sidebar for the [pi coding harness](https://pi.dev) with model, c
 - **Git branch and diff summary** — shows current branch, changed file count, and total `+/-` stats.
 - **Per-file git deltas** — changed-file rows preserve room for deltas and color additions/deletions separately.
 - **Truncated git list** — changed-file rows are capped so the centered sidebar does not grow too tall; overflow renders as `…N more`.
+- **Collapsible restore bar** — `/sidebar` or `ctrl+shift+s` shrinks the sidebar to a narrow right-edge bar and restores it; `/sidebar collapse` and `/sidebar expand` are also available.
 - **Configurable git detail** — toggle longer/reduced changed-file lists with `/sidebar-git-detail`.
 - **No footer replacement** — leaves pi's native footer alone.
 - **Responsive visibility** — auto-hides below a configurable terminal width.
@@ -113,18 +114,20 @@ pi install -l git:github.com/jrimmer/pi-sidebar
 
 ## Commands
 
-- `/sidebar` — toggle sidebar visibility
-- `/sidebar on` — show sidebar
-- `/sidebar off` — hide sidebar
-- `/sidebar status` — show enabled/layout/autohide/git-detail state
+- `/sidebar` — collapse/expand the sidebar using the right-edge restore bar
+- `/sidebar on` — show the expanded sidebar
+- `/sidebar off` — hide the sidebar completely
+- `/sidebar status` — show enabled/layout/autohide/git-detail/collapsed state
 - `/sidebar full` — use full-height fixed-window sidebar mode
 - `/sidebar floating` — use the default floating overlay window
+- `/sidebar collapse` — collapse sidebar to the restore bar
+- `/sidebar expand` — expand a collapsed sidebar
 - `/sidebar-refresh` — refresh git/status data
 - `/sidebar-git-detail` — toggle longer changed-file list
 
 Shortcut:
 
-- `ctrl+shift+s` — toggle sidebar
+- `ctrl+shift+s` — collapse/expand the sidebar using the right-edge restore bar
 
 ## Configuration
 
