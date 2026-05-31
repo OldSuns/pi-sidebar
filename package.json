@@ -18,11 +18,14 @@
   "pi": {
     "extensions": [
       "./extensions/sidebar.ts"
-    ]
+    ],
+    "image": "https://raw.githubusercontent.com/jrimmer/pi-sidebar/main/assets/sidebar-screenshot.png"
   },
   "files": [
     "LICENSE",
+    "assets",
     "README.md",
+    "SECURITY.md",
     "docs",
     "extensions",
     "tsconfig.json"

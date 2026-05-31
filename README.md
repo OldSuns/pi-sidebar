@@ -1,8 +1,10 @@
 # pi-sidebar
 
-Floating right sidebar for pi with model, context, git, and session metadata.
+Floating right sidebar for the [pi coding harness](https://pi.dev) with model, context, git, and session metadata.
 
-`pi-sidebar` is an installable pi package that renders a non-capturing right sidebar overlay. It defaults to a vertically centered floating mode and auto-hides while the LLM is working, so it does not obscure review of in-progress model output. An optional full-height mode is available for a more fixed-window look.
+`pi-sidebar` is an installable package for the pi coding harness. It renders a non-capturing right sidebar overlay, defaults to a vertically centered floating mode on the right side, and auto-hides while the LLM is working so it does not obscure review of in-progress model output. An optional full-height mode is available for a more fixed-window look.
+
+![pi-sidebar screenshot](assets/sidebar-screenshot.png)
 
 > A true fixed sidebar that reserves space and reflows pi's transcript/editor/footer requires native Pi TUI window-region support. See [Future native Pi TUI window regions](docs/architecture/native-tui-window-future.md).
 
@@ -27,6 +29,7 @@ Model
 gpt-5.5 • medium
 openai-codex
 turns 4
+last tool use bash
 
 Context
 5% • 49.2k of 1048.6k
@@ -46,7 +49,19 @@ Location
 
 ## Install
 
-Install globally for all pi instances on this computer:
+Install globally for all pi coding harness instances on this computer:
+
+```bash
+pi install git:github.com/jrimmer/pi-sidebar
+```
+
+This repository also works with pi's raw GitHub URL install form:
+
+```bash
+pi install https://github.com/jrimmer/pi-sidebar
+```
+
+For local development from a checkout:
 
 ```bash
 cd /path/to/pi-sidebar
@@ -56,8 +71,17 @@ pi install ./
 Test for one run without installing:
 
 ```bash
-pi -e ./
+pi -e git:github.com/jrimmer/pi-sidebar
 ```
+
+For local development, make sure pi is loading this checkout, not the installed GitHub clone:
+
+```bash
+pi remove git:github.com/jrimmer/pi-sidebar
+pi install /path/to/pi-sidebar
+```
+
+Then `/reload` re-reads the local files. If you keep the GitHub package installed, `/reload` only reloads pi's cloned copy under `~/.pi/agent/git/...`; it will not pick up uncommitted local checkout changes.
 
 Reload an already-running pi after installation:
 
@@ -69,6 +93,20 @@ Verify installation inside pi:
 
 ```text
 /sidebar status
+```
+
+Manage the installed package:
+
+```bash
+pi list
+pi update --extensions
+pi remove git:github.com/jrimmer/pi-sidebar
+```
+
+Use project-local install only when you want `.pi/settings.json` in the current project to carry the dependency:
+
+```bash
+pi install -l git:github.com/jrimmer/pi-sidebar
 ```
 
 > Note: local path installs reference this directory directly. Keep the directory around, or install from a git/npm source later.
@@ -99,6 +137,7 @@ Set environment variables before starting pi:
 | `PI_SIDEBAR_FULL_HEIGHT` | `0` | Use full-height fixed-window mode instead of floating mode. |
 | `PI_SIDEBAR_BUFFER` | `1` | Blank gutter columns before the sidebar border in full-height mode. |
 | `PI_SIDEBAR_FILL_ROWS` | `200` | Rows emitted to visually fill tall terminals in full-height mode. |
+| `PI_SIDEBAR_VERTICAL_PADDING` | `1` | Blank rows added above and below the floating sidebar content. Use `0` to disable. |
 | `PI_SIDEBAR_MIN_TERM_WIDTH` | `110` | Auto-hide below this terminal width. |
 | `PI_SIDEBAR_OFFSET_Y` | `-6` | Floating-mode vertical offset. Negative moves up; `0` uses the TUI's exact `right-center` anchor. |
 | `PI_SIDEBAR_AUTOHIDE_WORKING` | `1` | Hide while the LLM is working. |
@@ -139,6 +178,19 @@ npm run verify
 ```
 
 `npm run verify` runs TypeScript checks, unit tests, and `npm pack --dry-run` to confirm package contents.
+
+### Adding a sidebar section
+
+Sections are intentionally lightweight and local to this package. There is no nested Pi-package plugin system.
+
+To add a section:
+
+1. Add a self-contained renderer in `extensions/sidebar/sections/<name>.ts`.
+2. Accept a `SidebarSectionContext` from `extensions/sidebar/types.ts`.
+3. Register the renderer in the `SIDEBAR_SECTIONS` array in `extensions/sidebar.ts`.
+4. Add or update tests in `tests/sidebar.test.ts`.
+
+Existing examples: `model.ts`, `context.ts`, `git.ts`, `location.ts`, and `hint.ts`.
 
 ## Current limitation
 

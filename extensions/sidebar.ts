@@ -9,30 +9,41 @@ import type {
 	TurnStartEvent,
 } from "@earendil-works/pi-coding-agent";
 import type { Component, OverlayHandle, TUI } from "@earendil-works/pi-tui";
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth } from "@earendil-works/pi-tui";
+import { renderContextSection } from "./sidebar/sections/context.js";
+import { renderGitSection } from "./sidebar/sections/git.js";
+import { renderHintSection } from "./sidebar/sections/hint.js";
+import { renderLocationSection } from "./sidebar/sections/location.js";
+import { renderModelSection } from "./sidebar/sections/model.js";
+import type {
+	GitState,
+	SidebarRenderOptions,
+	SidebarSectionContext,
+	SidebarState,
+	Theme,
+} from "./sidebar/types.js";
+import {
+	envBool,
+	envInt,
+	envSignedInt,
+	padAnsi,
+	parseNumstat,
+	parseShortstat,
+	shouldHideSidebar,
+} from "./sidebar/utils.js";
 
-type Theme = ExtensionContext["ui"]["theme"];
-
-export type GitState = {
-	insideRepo: boolean;
-	branch?: string;
-	files: Array<{ code: string; path: string; delta?: string }>;
-	insertions: number;
-	deletions: number;
-	changedFiles: number;
-	error?: string;
-};
-
-export type SidebarState = {
-	enabled: boolean;
-	gitDetail: boolean;
-	fullHeight: boolean;
-	git: GitState;
-	lastGitRefresh?: number;
-	turnCount: number;
-	isStreaming: boolean;
-	lastTool?: string;
-};
+export type { GitState, SidebarState } from "./sidebar/types.js";
+export {
+	envBool,
+	envInt,
+	envSignedInt,
+	formatFileLine,
+	fmtNumber,
+	padAnsi,
+	parseNumstat,
+	parseShortstat,
+	shouldHideSidebar,
+} from "./sidebar/utils.js";
 
 const DEFAULT_GIT: GitState = {
 	insideRepo: false,
@@ -42,102 +53,20 @@ const DEFAULT_GIT: GitState = {
 	changedFiles: 0,
 };
 
-export function envBool(name: string, fallback: boolean): boolean {
-	const value = process.env[name];
-	if (value === undefined || value === "") return fallback;
-	return !["0", "false", "no", "off"].includes(value.toLowerCase());
-}
-
-export function envInt(name: string, fallback: number): number {
-	const value = Number.parseInt(process.env[name] ?? "", 10);
-	return Number.isFinite(value) && value > 0 ? value : fallback;
-}
-
-export function envSignedInt(name: string, fallback: number): number {
-	const value = Number.parseInt(process.env[name] ?? "", 10);
-	return Number.isFinite(value) ? value : fallback;
-}
-
-export function fmtNumber(n: number): string {
-	return n < 1000 ? String(n) : `${(n / 1000).toFixed(1)}k`;
-}
-
-export function padAnsi(line: string, width: number): string {
-	const pad = Math.max(0, width - visibleWidth(line));
-	return line + " ".repeat(pad);
-}
-
-export function parseShortstat(
-	shortstat: string,
-): Pick<GitState, "changedFiles" | "insertions" | "deletions"> {
-	const changedFiles = Number(
-		shortstat.match(/(\d+) files? changed/)?.[1] ?? 0,
-	);
-	const insertions = Number(shortstat.match(/(\d+) insertions?/)?.[1] ?? 0);
-	const deletions = Number(shortstat.match(/(\d+) deletions?/)?.[1] ?? 0);
-	return { changedFiles, insertions, deletions };
-}
-
-export function parseNumstat(numstat: string): Map<string, string> {
-	const deltas = new Map<string, string>();
-	for (const line of numstat.split("\n")) {
-		const trimmed = line.trimEnd();
-		if (!trimmed) continue;
-		const [added, deleted, ...pathParts] = trimmed.split("\t");
-		const path = pathParts.join("\t").trim();
-		if (!path) continue;
-		const addedText = added === "-" ? "bin" : `+${added}`;
-		const deletedText = deleted === "-" ? "bin" : `-${deleted}`;
-		deltas.set(
-			path,
-			addedText === "bin" || deletedText === "bin"
-				? "bin"
-				: `${addedText}/${deletedText}`,
-		);
-	}
-	return deltas;
-}
-
-export function shouldHideSidebar(
-	state: Pick<SidebarState, "enabled" | "isStreaming">,
-	autohideWorking: boolean,
-): boolean {
-	return !state.enabled || (autohideWorking && state.isStreaming);
-}
-
-export function formatFileLine(
-	file: { code: string; path: string; delta?: string },
-	width: number,
-): string {
-	const code = file.code.padEnd(2);
-	const delta = file.delta ? ` ${file.delta}` : "";
-	const pathWidth = Math.max(
-		1,
-		width - visibleWidth(code) - visibleWidth(delta) - 1,
-	);
-	return `${code} ${truncateToWidth(file.path, pathWidth, "…")}${delta}`;
-}
-
-function colorDelta(delta: string | undefined, theme: Theme): string {
-	if (!delta) return "";
-	const numeric = delta.match(/^(\+\d+)\/(-\d+)$/);
-	if (numeric) {
-		return `${theme.fg("toolDiffAdded", numeric[1])}${theme.fg("dim", "/")}${theme.fg("toolDiffRemoved", numeric[2])}`;
-	}
-	return theme.fg(delta === "new" ? "toolDiffAdded" : "dim", delta);
-}
+const SIDEBAR_SECTIONS: Array<(section: SidebarSectionContext) => void> = [
+	renderModelSection,
+	renderContextSection,
+	renderGitSection,
+	renderLocationSection,
+	renderHintSection,
+];
 
 export class SidebarComponent implements Component {
 	constructor(
 		private readonly getContext: () => ExtensionContext | undefined,
 		private readonly state: SidebarState,
 		private readonly theme: Theme,
-		private readonly options: {
-			maxFiles: number;
-			buffer: number;
-			fillRows: number;
-			getThinkingLevel: () => string | undefined;
-		},
+		private readonly options: SidebarRenderOptions,
 	) {}
 
 	invalidate(): void {}
@@ -157,95 +86,28 @@ export class SidebarComponent implements Component {
 			add();
 			add(this.theme.fg("text", this.theme.bold(label)));
 		};
-		const muted = (s: string) => this.theme.fg("muted", s);
-		const dim = (s: string) => this.theme.fg("dim", s);
+		const section: SidebarSectionContext = {
+			ctx,
+			state: this.state,
+			theme: this.theme,
+			innerWidth,
+			add,
+			heading,
+			muted: (s: string) => this.theme.fg("muted", s),
+			dim: (s: string) => this.theme.fg("dim", s),
+			options: this.options,
+		};
 
-		add(this.theme.fg("text", this.theme.bold("Model")));
-		const reasoning = this.options.getThinkingLevel() ?? "off";
-		if (ctx?.model) {
-			add(truncateToWidth(`${ctx.model.id} • ${reasoning}`, innerWidth, "…"));
-			add(dim(truncateToWidth(ctx.model.provider, innerWidth, "…")));
-		} else {
-			add(dim(`no model • ${reasoning}`));
-		}
-		add(
-			dim(
-				`turns ${this.state.turnCount}${this.state.isStreaming ? " • streaming" : ""}`,
-			),
-		);
-		if (this.state.lastTool) add(dim(`last tool ${this.state.lastTool}`));
-
-		heading("Context");
-		const usage = ctx?.getContextUsage();
-		if (usage) {
-			const tokenText =
-				usage.tokens == null ? "unknown" : fmtNumber(usage.tokens);
-			const percentText =
-				usage.percent == null ? "?" : `${usage.percent.toFixed(0)}%`;
-			add(`${percentText} • ${tokenText} of ${fmtNumber(usage.contextWindow)}`);
-		} else {
-			add(muted("not available yet"));
-		}
-
-		heading("Git");
-		this.renderGit(add, innerWidth);
-
-		heading("Location");
-		add(dim(truncateToWidth(ctx?.cwd ?? process.cwd(), innerWidth, "…")));
-
-		add();
-		add(dim("/sidebar status"));
+		const verticalPadding = this.state.fullHeight
+			? 0
+			: this.options.verticalPadding;
+		for (let i = 0; i < verticalPadding; i++) add();
+		for (const renderSection of SIDEBAR_SECTIONS) renderSection(section);
+		for (let i = 0; i < verticalPadding; i++) add();
 		if (this.state.fullHeight) {
 			while (lines.length < this.options.fillRows) add();
 		}
 		return lines;
-	}
-
-	private renderGit(add: (line?: string) => void, width: number): void {
-		const git = this.state.git;
-		if (!git.insideRepo) {
-			add(
-				this.theme.fg(
-					git.error ? "warning" : "muted",
-					git.error ?? "not a git repo",
-				),
-			);
-			return;
-		}
-
-		if (git.branch)
-			add(this.theme.fg("accent", truncateToWidth(git.branch, width, "…")));
-		const summary = `${git.changedFiles} files  ${this.theme.fg("toolDiffAdded", `+${git.insertions}`)} ${this.theme.fg("toolDiffRemoved", `-${git.deletions}`)}`;
-		add(summary);
-
-		if (git.files.length === 0) {
-			add(this.theme.fg("success", "clean working tree"));
-			return;
-		}
-
-		const max = this.state.gitDetail
-			? this.options.maxFiles
-			: Math.min(5, this.options.maxFiles);
-		for (const file of git.files.slice(0, max)) {
-			const codeColor = file.code.includes("D")
-				? "toolDiffRemoved"
-				: file.code.includes("A") || file.code.includes("?")
-					? "toolDiffAdded"
-					: "warning";
-			const code = file.code.padEnd(2);
-			const delta = file.delta ? ` ${file.delta}` : "";
-			const pathWidth = Math.max(
-				1,
-				width - visibleWidth(code) - visibleWidth(delta) - 1,
-			);
-			const path = truncateToWidth(file.path, pathWidth, "…");
-			const coloredDelta = colorDelta(file.delta, this.theme);
-			add(
-				`${this.theme.fg(codeColor, code)} ${path}${coloredDelta ? ` ${coloredDelta}` : ""}`,
-			);
-		}
-		if (git.files.length > max)
-			add(this.theme.fg("dim", `…${git.files.length - max} more`));
 	}
 }
 
@@ -262,6 +124,10 @@ export default function sidebarPlugin(pi: ExtensionAPI) {
 	const sidebarWidth = envInt("PI_SIDEBAR_WIDTH", 34);
 	const sidebarBuffer = envInt("PI_SIDEBAR_BUFFER", 1);
 	const sidebarFillRows = envInt("PI_SIDEBAR_FILL_ROWS", 200);
+	const sidebarVerticalPadding = Math.max(
+		0,
+		envSignedInt("PI_SIDEBAR_VERTICAL_PADDING", 1),
+	);
 	const minTermWidth = envInt("PI_SIDEBAR_MIN_TERM_WIDTH", 110);
 	const refreshMs = envInt("PI_SIDEBAR_REFRESH_MS", 5000);
 	const maxFiles = envInt(
@@ -397,6 +263,7 @@ export default function sidebarPlugin(pi: ExtensionAPI) {
 					maxFiles,
 					buffer: sidebarBuffer,
 					fillRows: sidebarFillRows,
+					verticalPadding: sidebarVerticalPadding,
 					getThinkingLevel: () => pi.getThinkingLevel?.(),
 				});
 				refreshTimer = setInterval(() => void refreshGit(), refreshMs);

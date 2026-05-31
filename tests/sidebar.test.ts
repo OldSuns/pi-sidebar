@@ -48,6 +48,7 @@ function component(
 	git: Partial<GitState>,
 	overrides: Partial<SidebarState> = {},
 	componentTheme: typeof theme = theme,
+	options: Partial<ConstructorParameters<typeof SidebarComponent>[3]> = {},
 ) {
 	return new SidebarComponent(
 		() =>
@@ -74,7 +75,14 @@ function component(
 			...overrides,
 		}),
 		componentTheme as any,
-		{ maxFiles: 2, buffer: 1, fillRows: 24, getThinkingLevel: () => "medium" },
+		{
+			maxFiles: 2,
+			buffer: 1,
+			fillRows: 24,
+			verticalPadding: 1,
+			getThinkingLevel: () => "medium",
+			...options,
+		},
 	);
 }
 
@@ -207,6 +215,28 @@ describe("SidebarComponent rendering", () => {
 		expect(rendered).toContain("<toolDiffRemoved>-130</toolDiffRemoved>");
 	});
 
+	it("limits detailed file rows and shows overflow count", () => {
+		const files = [
+			{ code: "M", path: "a.ts" },
+			{ code: "A", path: "b.ts" },
+			{ code: "D", path: "c.ts" },
+			{ code: "M", path: "d.ts" },
+		];
+		const rendered = component(
+			{ files, changedFiles: 4 },
+			{ gitDetail: true, fullHeight: false },
+			theme,
+			{ maxFiles: 3 },
+		)
+			.render(36)
+			.join("\n");
+		expect(rendered).toContain("a.ts");
+		expect(rendered).toContain("b.ts");
+		expect(rendered).toContain("c.ts");
+		expect(rendered).not.toContain("d.ts");
+		expect(rendered).toContain("…1 more");
+	});
+
 	it("limits file rows when git detail is reduced", () => {
 		const files = [
 			{ code: "M", path: "a.ts" },
@@ -222,9 +252,49 @@ describe("SidebarComponent rendering", () => {
 		expect(rendered).toContain("…1 more");
 	});
 
-	it("does not add full-height gutter or filler rows in floating mode", () => {
+	it("renders clean and non-repository git states", () => {
+		const clean = component(
+			{ files: [], changedFiles: 0 },
+			{ fullHeight: false },
+		)
+			.render(40)
+			.join("\n");
+		expect(clean).toContain("clean working tree");
+
+		const outsideRepo = component(
+			{ insideRepo: false, error: "not a git repo" },
+			{ fullHeight: false },
+		)
+			.render(40)
+			.join("\n");
+		expect(outsideRepo).toContain("not a git repo");
+	});
+
+	it("renders fallbacks when model and context are unavailable", () => {
+		const rendered = new SidebarComponent(
+			() => ({ cwd: "/repo/project" }) as any,
+			state({ fullHeight: false }),
+			theme as any,
+			{
+				maxFiles: 2,
+				buffer: 1,
+				fillRows: 24,
+				verticalPadding: 1,
+				getThinkingLevel: () => undefined,
+			},
+		)
+			.render(40)
+			.join("\n");
+		expect(rendered).toContain("no model • off");
+		expect(rendered).toContain("not available yet");
+	});
+
+	it("adds vertical padding but no full-height gutter or filler rows in floating mode", () => {
 		const rendered = component({}, { fullHeight: false }).render(36);
 		expect(rendered.length).toBeLessThan(24);
-		expect(rendered[0]).toMatch(/^│ Model/);
+		expect(rendered[0]).toMatch(/^│\s*$/);
+		expect(rendered[1]).toMatch(/^│ Model/);
+		expect(rendered.at(-1)).toMatch(/^│\s*$/);
+		expect(rendered.at(-2)).not.toMatch(/^│\s*$/);
 	});
 });
