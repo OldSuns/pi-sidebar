@@ -53,6 +53,8 @@ const DEFAULT_GIT: GitState = {
 	changedFiles: 0,
 };
 
+const COLLAPSED_SIDEBAR_WIDTH = 2;
+
 const SIDEBAR_SECTIONS: Array<(section: SidebarSectionContext) => void> = [
 	renderModelSection,
 	renderContextSection,
@@ -60,6 +62,16 @@ const SIDEBAR_SECTIONS: Array<(section: SidebarSectionContext) => void> = [
 	renderLocationSection,
 	renderHintSection,
 ];
+
+export function sidebarOverlayWidth(
+	state: Pick<SidebarState, "collapsed" | "fullHeight">,
+	width: number,
+	buffer: number,
+): number {
+	return state.collapsed
+		? COLLAPSED_SIDEBAR_WIDTH
+		: width + (state.fullHeight ? buffer : 0);
+}
 
 export function setSidebarCollapsed(
 	state: Pick<SidebarState, "enabled" | "collapsed">,
@@ -202,8 +214,8 @@ export default function sidebarPlugin(pi: ExtensionAPI) {
 		requestRender();
 	}
 
-	function sidebarOverlayWidth(): number {
-		return sidebarWidth + (state.fullHeight ? sidebarBuffer : 0);
+	function currentSidebarOverlayWidth(): number {
+		return sidebarOverlayWidth(state, sidebarWidth, sidebarBuffer);
 	}
 
 	async function refreshGit(ctx: ExtensionContext | undefined = currentCtx) {
@@ -320,17 +332,27 @@ export default function sidebarPlugin(pi: ExtensionAPI) {
 			},
 			{
 				overlay: true,
-				overlayOptions: () => ({
-					anchor: state.fullHeight ? "top-right" : "right-center",
-					width: sidebarOverlayWidth(),
+				overlayOptions: {
+					get anchor() {
+						return state.fullHeight
+							? ("top-right" as const)
+							: ("right-center" as const);
+					},
+					get width() {
+						return currentSidebarOverlayWidth();
+					},
 					maxHeight: "100%",
-					margin: state.fullHeight
-						? { top: 0, right: 0, bottom: 0 }
-						: { right: 0 },
-					offsetY: state.fullHeight ? 0 : floatingOffsetY,
+					get margin() {
+						return state.fullHeight
+							? { top: 0, right: 0, bottom: 0 }
+							: { right: 0 };
+					},
+					get offsetY() {
+						return state.fullHeight ? 0 : floatingOffsetY;
+					},
 					nonCapturing: true,
 					visible: (termWidth: number) => termWidth >= minTermWidth,
-				}),
+				},
 				onHandle: (handle: OverlayHandle) => {
 					overlayHandle = handle;
 					handle.unfocus();

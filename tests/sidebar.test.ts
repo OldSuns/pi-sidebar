@@ -12,6 +12,7 @@ import {
 	parseShortstat,
 	setSidebarCollapsed,
 	shouldHideSidebar,
+	sidebarOverlayWidth,
 	toggleSidebarCollapsed,
 	type GitState,
 	type SidebarState,
@@ -331,21 +332,40 @@ describe("SidebarComponent rendering", () => {
 		expect(rendered.at(-2)).not.toMatch(/^│\s*$/);
 	});
 
+	it("shrinks the overlay to the restore rail when collapsed", () => {
+		expect(
+			sidebarOverlayWidth(
+				state({ collapsed: false, fullHeight: false }),
+				34,
+				1,
+			),
+		).toBe(34);
+		expect(
+			sidebarOverlayWidth(state({ collapsed: false, fullHeight: true }), 34, 1),
+		).toBe(35);
+		expect(
+			sidebarOverlayWidth(state({ collapsed: true, fullHeight: false }), 34, 1),
+		).toBe(2);
+		expect(
+			sidebarOverlayWidth(state({ collapsed: true, fullHeight: true }), 34, 1),
+		).toBe(2);
+	});
+
 	it("renders a narrow restore bar when collapsed", () => {
 		const floating = component(
 			{},
 			{ collapsed: true, fullHeight: false },
-		).render(10);
+		).render(2);
 		expect(floating).toHaveLength(3);
 		expect(floating.join("\n")).toContain("◀│");
-		expect(floating[0]).toBe("         │");
-		expect(floating[1]).toBe("        ◀│");
+		expect(floating[0]).toBe(" │");
+		expect(floating[1]).toBe("◀│");
 		expect(floating.join("\n")).not.toContain("Model");
 
 		const fullHeight = component(
 			{},
 			{ collapsed: true, fullHeight: true },
-		).render(4);
+		).render(2);
 		expect(fullHeight).toHaveLength(24);
 		expect(fullHeight.join("\n")).toContain("◀");
 		expect(fullHeight.join("\n")).not.toContain("Model");
