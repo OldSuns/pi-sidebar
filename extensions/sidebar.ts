@@ -209,6 +209,11 @@ export default function sidebarPlugin(pi: ExtensionAPI) {
 	pi.on(
 		"session_shutdown",
 		async (_event: SessionShutdownEvent, _ctx: ExtensionContext) => {
+			// Dispose the compositor as a fallback in case the widget's own
+			// dispose wasn't called (e.g. ctrl+c exit path) — its dispose clears
+			// the painted sidebar region so it doesn't linger on screen.
+			compositorRef?.dispose();
+			compositorRef = undefined;
 			process.stdout.write("\x1b[?25h");
 		},
 	);

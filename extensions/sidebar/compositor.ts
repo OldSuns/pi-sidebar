@@ -46,6 +46,7 @@ export class SidebarCompositor {
 	private theme: Theme;
 	private originalColumnsDesc: PropertyDescriptor | undefined;
 	private originalDoRender: (() => void) | null = null;
+	private originalWrite: ((data: string) => void) | null = null;
 	private disposed = false;
 	private panelConfig: SidebarUIConfig = {};
 
@@ -94,79 +95,127 @@ export class SidebarCompositor {
 		const ctx = this.getCtx();
 		this.panelConfig = loadSidebarUIConfig(ctx?.cwd);
 
-		// Hook tui.doRender so we paint the sidebar after every Pi render
+		// Hook tui.doRender so we paint the sidebar after every Pi render.
+		// We also wrap terminal.write so the sidebar paint is folded into Pi's
+		// own synchronized-output (`?2026h/l`) block: doRender's `\r\n` scroll
+		// would otherwise wipe the sidebar column, and a separate paint call
+		// would land in its own sync block — the terminal refreshes between
+		// them, so the sidebar visibly flickers on every render. By stripping
+		// the `?2026l` terminator from doRender's output, appending the paint,
+		// then re-emitting `?2026l`, the whole scroll+repaint is atomic to the
+		// terminal and the sidebar appears fixed.
 		const tuiAny = this.tui as unknown as { doRender?: () => void };
-		if (typeof tuiAny.doRender === "function") {
+		if (typeof tuiAny.doRender === "function" && typeof this.terminal.write === "function") {
+			this.originalWrite = this.terminal.write.bind(this.terminal);
 			this.originalDoRender = tuiAny.doRender.bind(tuiAny);
+			const origWrite = this.originalWrite;
+			const SYNC_END = "\x1b[?2026l";
+			let capturing = false;
+			let captured: string[] = [];
+			let syncRemoved = false;
+
+			this.terminal.write = (data: string) => {
+				if (capturing) {
+					if (data.endsWith(SYNC_END)) {
+						captured.push(data.slice(0, -SYNC_END.length));
+						syncRemoved = true;
+					} else {
+						captured.push(data);
+					}
+				} else {
+					origWrite(data);
+				}
+			};
+
 			tuiAny.doRender = () => {
 				if (self.disposed) {
 					self.originalDoRender?.();
 					return;
 				}
+				capturing = true;
+				captured = [];
+				syncRemoved = false;
 				self.originalDoRender!();
-				self.paint();
+				capturing = false;
+				const paintContent = self.buildPaintContent();
+				const terminator = syncRemoved ? SYNC_END : "";
+				origWrite(captured.join("") + paintContent + terminator);
+				captured = [];
 			};
 		}
 	}
 
 	paint(): void {
-		if (this.disposed) return;
+		const content = this.buildPaintContent();
+		if (!content) return;
+		this.terminal.write("\x1b[?2026h" + content + "\x1b[?2026l");
+	}
+
+	/**
+	 * Build the sidebar paint buffer WITHOUT the synchronized-output wrapper.
+	 * The caller (`paint` or the doRender hook) is responsible for wrapping
+	 * this in `?2026h/l` so it can be merged with Pi's own sync block.
+	 */
+	private buildPaintContent(): string {
+		if (this.disposed) return "";
 		// Skip painting while TUI is stopped (e.g. external editor active)
 		// to avoid ANSI codes overwriting the editor's display.
-		// Read the TUI's own stopped state directly instead of hooking start/stop
-		// which can be bypassed by other code paths (e.g. SIGCONT handler).
-		if ((this.tui as unknown as { stopped?: boolean }).stopped) return;
+		if ((this.tui as unknown as { stopped?: boolean }).stopped) return "";
 
 		const state = this.getState();
-		if (!state.enabled) return;
-
-		// Read raw terminal dims before the column shim
-		const d = this.originalColumnsDesc;
-		const rawCols = d?.get
-			? (d.get.call(this.terminal) ?? 80)
-			: typeof d?.value === "number"
-				? d.value
-				: 80;
+		const rawCols = this.getRawColumns();
 		// Hide sidebar when terminal is too narrow
-		if (rawCols < MIN_TERMINAL_WIDTH) return;
-		const rawRows = this.terminal.rows ?? process.stdout.rows ?? 24;
+		if (rawCols < MIN_TERMINAL_WIDTH) return "";
 
+		const rawRows = this.terminal.rows ?? process.stdout.rows ?? 24;
 		const sw = SIDEBAR_WIDTH;
 		const sepCol = rawCols - sw;
 		const sidebarCol = sepCol + 1;
-		const ctx = this.getCtx();
 
-		const buffer = 1;
-		const contentWidth = Math.max(8, sw - buffer);
-		const innerWidth = Math.max(8, contentWidth - 3);
-		const lines = this.buildSidebarContent(ctx, state, innerWidth, rawRows);
+		let buf = "\x1b7";          // save cursor (DECSC)
+		buf += "\x1b[?7l";          // disable auto-wrap
 
-		// Atomic paint: sync + save/restore cursor
-		let buf = "\x1b[?2026h"; // begin synchronized output
-		buf += "\x1b7";          // save cursor (DECSC)
-		buf += "\x1b[?7l";       // disable auto-wrap
-
-		for (let row = 1; row <= rawRows; row++) {
-			// Separator at the boundary between Pi content and sidebar
-			buf += `\x1b[${row};${sepCol}H`;
-			buf += this.theme.fg("border", row === 1 ? "\u2503" : "\u2502");
-			// Sidebar background + content
-			buf += `\x1b[${row};${sidebarCol}H`;
-			buf += SIDEBAR_BG;
-			const line = lines[row - 1];
-			if (line !== undefined) {
-				buf += truncateToWidth(line, sw, "", true);
-			} else {
-				buf += " ".repeat(sw);
+		if (!state.enabled) {
+			// Wipe separator + sidebar with spaces, resetting any bg color
+			for (let row = 1; row <= rawRows; row++) {
+				buf += `\x1b[${row};${sepCol}H\x1b[0m`;
+				buf += " ".repeat(sw + 1);
 			}
-			buf += BG_RESET;
+		} else {
+			const ctx = this.getCtx();
+			const buffer = 1;
+			const contentWidth = Math.max(8, sw - buffer);
+			const innerWidth = Math.max(8, contentWidth - 3);
+			const lines = this.buildSidebarContent(ctx, state, innerWidth, rawRows);
+			for (let row = 1; row <= rawRows; row++) {
+				// Separator at the boundary between Pi content and sidebar
+				buf += `\x1b[${row};${sepCol}H`;
+				buf += this.theme.fg("border", row === 1 ? "\u2503" : "\u2502");
+				// Sidebar background + content
+				buf += `\x1b[${row};${sidebarCol}H`;
+				buf += SIDEBAR_BG;
+				const line = lines[row - 1];
+				if (line !== undefined) {
+					buf += truncateToWidth(line, sw, "", true);
+				} else {
+					buf += " ".repeat(sw);
+				}
+				buf += BG_RESET;
+			}
 		}
 
 		buf += "\x1b[?7h";       // enable auto-wrap
 		buf += "\x1b8";          // restore cursor (DECRC)
-		buf += "\x1b[?2026l";    // end synchronized output
+		return buf;
+	}
 
-		this.terminal.write(buf);
+	private getRawColumns(): number {
+		const d = this.originalColumnsDesc;
+		return d?.get
+			? (d.get.call(this.terminal) ?? 80)
+			: typeof d?.value === "number"
+				? d.value
+				: 80;
 	}
 
 	private buildSidebarContent(
@@ -183,7 +232,7 @@ export class SidebarCompositor {
 				"",
 			), SIDEBAR_WIDTH);
 
-		const add = (line = "") => lines.push(fmtLine(line));
+		const add = (line = "") => { lines.push(fmtLine(line)); };
 		const heading = (label: string) => {
 			add();
 			add(this.theme.fg("text", this.theme.bold(label)));
@@ -287,6 +336,37 @@ export class SidebarCompositor {
 		// Restore the original doRender
 		if (this.originalDoRender !== null) {
 			(this.tui as unknown as { doRender?: () => void }).doRender = this.originalDoRender;
+			this.originalDoRender = null;
 		}
+
+		// Restore the original terminal.write before clearing so the clear
+		// output goes straight to the terminal without capture interference.
+		if (this.originalWrite !== null) {
+			this.terminal.write = this.originalWrite;
+			this.originalWrite = null;
+		}
+
+		// Clear the sidebar region so it doesn't linger on screen after exit.
+		// Columns are restored above, so this.terminal.columns is the raw width.
+		const clearBuf = this.buildClearContent();
+		if (clearBuf) {
+			this.terminal.write("\x1b[?2026h" + clearBuf + "\x1b[?2026l");
+		}
+	}
+
+	private buildClearContent(): string {
+		const rawCols = this.terminal.columns;
+		const rawRows = this.terminal.rows ?? process.stdout.rows ?? 24;
+		if (rawCols < MIN_TERMINAL_WIDTH) return "";
+		const sw = SIDEBAR_WIDTH;
+		const sepCol = rawCols - sw;
+		let buf = "\x1b7\x1b[?7l";
+		for (let row = 1; row <= rawRows; row++) {
+			// Overwrite separator + sidebar with spaces, resetting any bg color
+			buf += `\x1b[${row};${sepCol}H\x1b[0m`;
+			buf += " ".repeat(sw + 1);
+		}
+		buf += "\x1b[?7h\x1b8";
+		return buf;
 	}
 }
