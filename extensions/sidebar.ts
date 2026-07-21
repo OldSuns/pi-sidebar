@@ -33,6 +33,7 @@ export {
 	padAnsi,
 	parseNumstat,
 	parseShortstat,
+	shouldHideSidebar,
 } from "./sidebar/utils.js";
 
 const DEFAULT_GIT: GitState = {
