@@ -1,8 +1,11 @@
 {
-  "name": "pi-sidebar",
-  "version": "0.1.1",
-  "description": "Floating right sidebar for pi with git diff/status and session metadata.",
+  "name": "@oldsuns/pi-sidebar",
+  "version": "0.1.36",
+  "description": "Floating right sidebar for pi with git diff/status and session metadata (unofficial fork of jrimmer/pi-sidebar).",
   "license": "BSD-3-Clause",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "sideEffects": false,
   "engines": {
@@ -15,11 +18,21 @@
     "git",
     "tui"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OldSuns/pi-sidebar.git"
+  },
+  "bugs": {
+    "url": "https://github.com/OldSuns/pi-sidebar/issues"
+  },
   "pi": {
     "extensions": [
       "./extensions/sidebar.ts"
     ],
-    "image": "https://raw.githubusercontent.com/jrimmer/pi-sidebar/main/assets/sidebar-screenshot.png"
+    "skills": [
+      "./skills"
+    ],
+    "image": "https://raw.githubusercontent.com/OldSuns/pi-sidebar/main/assets/sidebar-screenshot.png"
   },
   "files": [
     "LICENSE",
@@ -28,6 +41,7 @@
     "SECURITY.md",
     "docs",
     "extensions",
+    "skills",
     "tsconfig.json"
   ],
   "peerDependencies": {

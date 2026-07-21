@@ -10,29 +10,6 @@ function colorDelta(delta: string | undefined, theme: Theme): string {
 	return theme.fg(delta === "new" ? "toolDiffAdded" : "dim", delta);
 }
 
-function gitFileLine(
-	file: { code: string; path: string; delta?: string },
-	innerWidth: number,
-	theme: Theme,
-): string {
-	const codeColor = file.code.includes("D")
-		? "toolDiffRemoved"
-		: file.code.includes("A") || file.code.includes("?")
-			? "toolDiffAdded"
-			: "warning";
-	const code = file.code.padEnd(2);
-	const coloredCode = theme.fg(codeColor, code);
-	const coloredDelta = colorDelta(file.delta, theme);
-	const deltaWidth = coloredDelta ? visibleWidth(coloredDelta) + 1 : 0;
-	const pathWidth = Math.max(
-		1,
-		innerWidth - visibleWidth(code) - 1 - deltaWidth,
-	);
-	const path = truncateToWidth(file.path, pathWidth, "…");
-	const line = `${coloredCode} ${path}${coloredDelta ? ` ${coloredDelta}` : ""}`;
-	return truncateToWidth(line, innerWidth, "");
-}
-
 export function renderGitSection(section: SidebarSectionContext): void {
 	const { state, theme, add, innerWidth } = section;
 	section.heading("Git");
@@ -58,7 +35,22 @@ export function renderGitSection(section: SidebarSectionContext): void {
 		? section.options.maxFiles
 		: Math.min(5, section.options.maxFiles);
 	for (const file of git.files.slice(0, max)) {
-		add(gitFileLine(file, innerWidth, theme));
+		const codeColor = file.code.includes("D")
+			? "toolDiffRemoved"
+			: file.code.includes("A") || file.code.includes("?")
+				? "toolDiffAdded"
+				: "warning";
+		const code = file.code.padEnd(2);
+		const delta = file.delta ? ` ${file.delta}` : "";
+		const pathWidth = Math.max(
+			1,
+			innerWidth - visibleWidth(code) - visibleWidth(delta) - 1,
+		);
+		const path = truncateToWidth(file.path, pathWidth, "…");
+		const coloredDelta = colorDelta(file.delta, theme);
+		add(
+			`${theme.fg(codeColor, code)} ${path}${coloredDelta ? ` ${coloredDelta}` : ""}`,
+		);
 	}
 	if (git.files.length > max)
 		add(theme.fg("dim", `…${git.files.length - max} more`));

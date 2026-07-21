@@ -2,25 +2,16 @@ import type {
 	ExtensionAPI,
 	ExtensionCommandContext,
 	ExtensionContext,
-	KeybindingsManager,
 	SessionShutdownEvent,
 	SessionStartEvent,
+	Theme,
 	TurnEndEvent,
 	TurnStartEvent,
 } from "@earendil-works/pi-coding-agent";
-import type { Component, OverlayHandle, TUI } from "@earendil-works/pi-tui";
-import { truncateToWidth } from "@earendil-works/pi-tui";
-import { renderContextSection } from "./sidebar/sections/context.js";
-import { renderGitSection } from "./sidebar/sections/git.js";
-import { renderHintSection } from "./sidebar/sections/hint.js";
-import { renderLocationSection } from "./sidebar/sections/location.js";
-import { renderModelSection } from "./sidebar/sections/model.js";
+import type { Component, TUI } from "@earendil-works/pi-tui";
 import type {
 	GitState,
-	SidebarRenderOptions,
-	SidebarSectionContext,
 	SidebarState,
-	Theme,
 } from "./sidebar/types.js";
 import {
 	envBool,
@@ -29,8 +20,8 @@ import {
 	padAnsi,
 	parseNumstat,
 	parseShortstat,
-	shouldHideSidebar,
 } from "./sidebar/utils.js";
+import { SidebarCompositor } from "./sidebar/compositor.js";
 
 export type { GitState, SidebarState } from "./sidebar/types.js";
 export {
@@ -42,7 +33,6 @@ export {
 	padAnsi,
 	parseNumstat,
 	parseShortstat,
-	shouldHideSidebar,
 } from "./sidebar/utils.js";
 
 const DEFAULT_GIT: GitState = {
@@ -52,114 +42,6 @@ const DEFAULT_GIT: GitState = {
 	deletions: 0,
 	changedFiles: 0,
 };
-
-const COLLAPSED_SIDEBAR_WIDTH = 2;
-
-const SIDEBAR_SECTIONS: Array<(section: SidebarSectionContext) => void> = [
-	renderModelSection,
-	renderContextSection,
-	renderGitSection,
-	renderLocationSection,
-	renderHintSection,
-];
-
-export function sidebarOverlayWidth(
-	state: Pick<SidebarState, "collapsed" | "fullHeight">,
-	width: number,
-	buffer: number,
-): number {
-	return state.collapsed
-		? COLLAPSED_SIDEBAR_WIDTH
-		: width + (state.fullHeight ? buffer : 0);
-}
-
-export function setSidebarCollapsed(
-	state: Pick<SidebarState, "enabled" | "collapsed">,
-	collapsed: boolean,
-): void {
-	state.enabled = true;
-	state.collapsed = collapsed;
-}
-
-export function toggleSidebarCollapsed(
-	state: Pick<SidebarState, "enabled" | "collapsed">,
-): void {
-	if (!state.enabled) {
-		setSidebarCollapsed(state, false);
-		return;
-	}
-	setSidebarCollapsed(state, !state.collapsed);
-}
-
-export class SidebarComponent implements Component {
-	constructor(
-		private readonly getContext: () => ExtensionContext | undefined,
-		private readonly state: SidebarState,
-		private readonly theme: Theme,
-		private readonly options: SidebarRenderOptions,
-	) {}
-
-	invalidate(): void {}
-
-	render(width: number): string[] {
-		if (this.state.collapsed) return this.renderCollapsed(width);
-
-		const ctx = this.getContext();
-		const buffer = this.state.fullHeight ? this.options.buffer : 0;
-		const contentWidth = Math.max(8, width - buffer);
-		const innerWidth = Math.max(8, contentWidth - 3);
-		const lines: string[] = [];
-		const add = (line = "") => {
-			const gutter = buffer > 0 ? " ".repeat(buffer) : "";
-			const bordered = gutter + this.theme.fg("borderMuted", "│ ") + line;
-			lines.push(padAnsi(truncateToWidth(bordered, width, ""), width));
-		};
-		const heading = (label: string) => {
-			add();
-			add(this.theme.fg("text", this.theme.bold(label)));
-		};
-		const section: SidebarSectionContext = {
-			ctx,
-			state: this.state,
-			theme: this.theme,
-			innerWidth,
-			add,
-			heading,
-			muted: (s: string) => this.theme.fg("muted", s),
-			dim: (s: string) => this.theme.fg("dim", s),
-			options: this.options,
-		};
-
-		const verticalPadding = this.state.fullHeight
-			? 0
-			: this.options.verticalPadding;
-		for (let i = 0; i < verticalPadding; i++) add();
-		for (const renderSection of SIDEBAR_SECTIONS) renderSection(section);
-		for (let i = 0; i < verticalPadding; i++) add();
-		if (this.state.fullHeight) {
-			while (lines.length < this.options.fillRows) add();
-		}
-		return lines;
-	}
-
-	private renderCollapsed(width: number): string[] {
-		const rail = (label = "") => {
-			const markerText = label ? "◀│" : " │";
-			const marker = this.theme.fg(
-				label ? "accent" : "borderMuted",
-				markerText,
-			);
-			const line = " ".repeat(Math.max(0, width - markerText.length)) + marker;
-			return padAnsi(truncateToWidth(line, width, ""), width);
-		};
-		if (this.state.fullHeight) {
-			const lines = Array.from({ length: this.options.fillRows }, () => rail());
-			if (lines.length > 1) lines[1] = rail("restore");
-			return lines;
-		}
-		return [rail(), rail("restore"), rail()];
-	}
-}
 
 export function piTitle(ctx: ExtensionContext): string {
 	const sessionName = (
@@ -171,51 +53,32 @@ export function piTitle(ctx: ExtensionContext): string {
 }
 
 export default function sidebarPlugin(pi: ExtensionAPI) {
-	const sidebarWidth = envInt("PI_SIDEBAR_WIDTH", 34);
-	const sidebarBuffer = envInt("PI_SIDEBAR_BUFFER", 1);
-	const sidebarFillRows = envInt("PI_SIDEBAR_FILL_ROWS", 200);
-	const sidebarVerticalPadding = Math.max(
-		0,
-		envSignedInt("PI_SIDEBAR_VERTICAL_PADDING", 1),
-	);
-	const minTermWidth = envInt("PI_SIDEBAR_MIN_TERM_WIDTH", 110);
 	const refreshMs = envInt("PI_SIDEBAR_REFRESH_MS", 5000);
 	const maxFiles = envInt(
 		"PI_SIDEBAR_GIT_LINES",
 		envInt("PI_SIDEBAR_MAX_FILES", 12),
 	);
-	const autohideWorking = envBool("PI_SIDEBAR_AUTOHIDE_WORKING", true);
-	const floatingOffsetY = envSignedInt("PI_SIDEBAR_OFFSET_Y", -6);
 
 	const state: SidebarState = {
 		enabled: envBool("PI_SIDEBAR_ENABLED", true),
-		collapsed: false,
 		gitDetail: envBool("PI_SIDEBAR_GIT_DETAIL", true),
 		fullHeight: envBool("PI_SIDEBAR_FULL_HEIGHT", false),
 		git: DEFAULT_GIT,
 		turnCount: 0,
 		isStreaming: false,
+		panelsCompact: false,
+		getThinkingLevel: () => String(pi.getThinkingLevel?.() ?? "off"),
 	};
 
 	let currentCtx: ExtensionContext | undefined;
-	let overlayHandle: OverlayHandle | undefined;
-	let component: SidebarComponent | undefined;
-	let tuiRef: TUI | undefined;
+	let compositorRef: SidebarCompositor | undefined;
 	let refreshTimer: ReturnType<typeof setInterval> | undefined;
 	let refreshing = false;
 
 	function requestRender() {
-		component?.invalidate();
-		tuiRef?.requestRender();
-	}
-
-	function applyVisibility() {
-		overlayHandle?.setHidden(shouldHideSidebar(state, autohideWorking));
-		requestRender();
-	}
-
-	function currentSidebarOverlayWidth(): number {
-		return sidebarOverlayWidth(state, sidebarWidth, sidebarBuffer);
+		if (compositorRef) {
+			compositorRef.paint();
+		}
 	}
 
 	async function refreshGit(ctx: ExtensionContext | undefined = currentCtx) {
@@ -298,83 +161,55 @@ export default function sidebarPlugin(pi: ExtensionAPI) {
 		}
 	}
 
-	function startSidebar(ctx: ExtensionContext) {
-		if (!ctx.hasUI || component) return;
+	function setupSidebar(ctx: ExtensionContext) {
+		if (!ctx.hasUI) return;
 		currentCtx = ctx;
 		void refreshGit(ctx);
-		void ctx.ui.custom<void>(
-			(
-				tui: TUI,
-				theme: Theme,
-				_keybindings: KeybindingsManager,
-				done: (result: void) => void,
-			) => {
-				tuiRef = tui;
-				component = new SidebarComponent(() => currentCtx, state, theme, {
-					maxFiles,
-					buffer: sidebarBuffer,
-					fillRows: sidebarFillRows,
-					verticalPadding: sidebarVerticalPadding,
-					getThinkingLevel: () => pi.getThinkingLevel?.(),
-				});
-				refreshTimer = setInterval(() => void refreshGit(), refreshMs);
-				return {
-					dispose() {
-						if (refreshTimer) clearInterval(refreshTimer);
+
+		// Use setWidget to get access to Pi's TUI and theme.
+		// The returned component is empty—the actual sidebar rendering is done
+		// by SidebarCompositor via direct ANSI writes after every Pi render cycle.
+		const factory = (_tui: TUI, theme: Theme): Component & { dispose?(): void } => {
+			compositorRef = new SidebarCompositor(
+				_tui,
+				() => state,
+				() => currentCtx,
+				theme,
+			);
+			compositorRef.install();
+
+			refreshTimer = setInterval(() => void refreshGit(), refreshMs);
+
+			return {
+				dispose() {
+					if (refreshTimer) {
+						clearInterval(refreshTimer);
 						refreshTimer = undefined;
-						component = undefined;
-						tuiRef = undefined;
-						done();
-					},
-					render: (width: number) => component?.render(width) ?? [],
-					invalidate: () => component?.invalidate(),
-				};
-			},
-			{
-				overlay: true,
-				overlayOptions: {
-					get anchor() {
-						return state.fullHeight
-							? ("top-right" as const)
-							: ("right-center" as const);
-					},
-					get width() {
-						return currentSidebarOverlayWidth();
-					},
-					maxHeight: "100%",
-					get margin() {
-						return state.fullHeight
-							? { top: 0, right: 0, bottom: 0 }
-							: { right: 0 };
-					},
-					get offsetY() {
-						return state.fullHeight ? 0 : floatingOffsetY;
-					},
-					nonCapturing: true,
-					visible: (termWidth: number) => termWidth >= minTermWidth,
+					}
+					compositorRef?.dispose();
+					compositorRef = undefined;
+					process.stdout.write("\x1b[?25h");
 				},
-				onHandle: (handle: OverlayHandle) => {
-					overlayHandle = handle;
-					handle.unfocus();
-					applyVisibility();
-				},
-			},
-		);
+				invalidate() {},
+				render(_width: number): string[] { return []; },
+			};
+		};
+
+		ctx.ui.setWidget("pi-sidebar", factory, { placement: "belowEditor" });
 	}
 
 	pi.on(
 		"session_start",
 		async (_event: SessionStartEvent, ctx: ExtensionContext) => {
 			currentCtx = ctx;
-			startSidebar(ctx);
+			setupSidebar(ctx);
 		},
 	);
 
 	pi.on(
 		"session_shutdown",
 		async (_event: SessionShutdownEvent, _ctx: ExtensionContext) => {
-			overlayHandle?.hide();
-			overlayHandle = undefined;
+			process.stdout.write("\x1b[?25h");
 		},
 	);
 
@@ -382,14 +217,14 @@ export default function sidebarPlugin(pi: ExtensionAPI) {
 		currentCtx = ctx;
 		state.turnCount++;
 		state.isStreaming = true;
-		applyVisibility();
+		requestRender();
 	});
 
 	pi.on("turn_end", async (_event: TurnEndEvent, ctx: ExtensionContext) => {
 		currentCtx = ctx;
 		state.isStreaming = false;
 		void refreshGit(ctx);
-		applyVisibility();
+		requestRender();
 	});
 
 	pi.on(
@@ -408,37 +243,26 @@ export default function sidebarPlugin(pi: ExtensionAPI) {
 
 	pi.registerCommand("sidebar", {
 		description:
-			"Toggle or configure the pi sidebar: /sidebar [collapse|expand|on|off|status|full|floating]",
+			"Toggle or configure the pi sidebar: /sidebar [on|off|toggle|status|full|floating]",
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
 			currentCtx = ctx;
-			startSidebar(ctx);
+			setupSidebar(ctx);
 			const action = args.trim().toLowerCase() || "toggle";
-			if (action === "on") setSidebarCollapsed(state, false);
+			if (action === "on") state.enabled = true;
 			else if (action === "off") state.enabled = false;
-			else if (action === "collapse" || action === "collapsed")
-				setSidebarCollapsed(state, true);
-			else if (action === "expand" || action === "expanded")
-				setSidebarCollapsed(state, false);
 			else if (action === "full" || action === "full-height")
 				state.fullHeight = true;
 			else if (action === "floating" || action === "window")
 				state.fullHeight = false;
 			else if (action === "status") {
 				ctx.ui.notify(
-					`Sidebar is ${state.enabled ? "on" : "off"}; ${state.collapsed ? "collapsed" : "expanded"}; layout is ${state.fullHeight ? "full-height" : "floating"}; autohide while working is ${autohideWorking ? "on" : "off"}; git detail is ${state.gitDetail ? "on" : "off"}.`,
+					`Sidebar is ${state.enabled ? "on" : "off"}; layout is ${state.fullHeight ? "full-height" : "floating"}; git detail is ${state.gitDetail ? "on" : "off"}.`,
 					"info",
 				);
 				return;
-			} else if (action === "toggle") toggleSidebarCollapsed(state);
-			else {
-				ctx.ui.notify(`Unknown sidebar option: ${action}`, "warning");
-				return;
-			}
-			applyVisibility();
-			ctx.ui.notify(
-				`Sidebar ${state.enabled ? (state.collapsed ? "collapsed" : "enabled") : "hidden"}`,
-				"info",
-			);
+			} else state.enabled = !state.enabled;
+			requestRender();
+			ctx.ui.notify(`Sidebar ${state.enabled ? "enabled" : "hidden"}`, "info");
 		},
 	});
 
@@ -463,13 +287,29 @@ export default function sidebarPlugin(pi: ExtensionAPI) {
 		},
 	});
 
+	pi.registerCommand("sidebar-panels", {
+		description:
+			"Toggle panels compact mode: /sidebar-panels [on|off]",
+		handler: async (args: string, ctx: ExtensionCommandContext) => {
+			const action = args.trim().toLowerCase();
+			if (action === "on") state.panelsCompact = true;
+			else if (action === "off") state.panelsCompact = false;
+			else state.panelsCompact = !state.panelsCompact;
+			requestRender();
+			ctx.ui.notify(
+				`Sidebar panels ${state.panelsCompact ? "compact" : "expanded"}`,
+				"info",
+			);
+		},
+	});
+
 	pi.registerShortcut("ctrl+shift+s", {
-		description: "Collapse or expand pi sidebar",
+		description: "Toggle pi sidebar",
 		handler: async (ctx: ExtensionContext) => {
 			currentCtx = ctx;
-			startSidebar(ctx);
-			toggleSidebarCollapsed(state);
-			applyVisibility();
+			setupSidebar(ctx);
+			state.enabled = !state.enabled;
+			requestRender();
 		},
 	});
 }

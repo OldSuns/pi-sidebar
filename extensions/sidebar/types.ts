@@ -14,7 +14,6 @@ export type GitState = {
 
 export type SidebarState = {
 	enabled: boolean;
-	collapsed: boolean;
 	gitDetail: boolean;
 	fullHeight: boolean;
 	git: GitState;
@@ -22,13 +21,16 @@ export type SidebarState = {
 	turnCount: number;
 	isStreaming: boolean;
 	lastTool?: string;
+	/** When true, external panels show at most maxLines per panel. */
+	panelsCompact?: boolean;
+	/** Returns the current thinking level string ("off", "low", "medium", "high"). */
+	getThinkingLevel: () => string;
 };
 
 export type SidebarRenderOptions = {
 	maxFiles: number;
 	buffer: number;
 	fillRows: number;
-	verticalPadding: number;
 	getThinkingLevel: () => string | undefined;
 };
 
