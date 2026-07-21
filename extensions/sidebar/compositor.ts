@@ -143,13 +143,6 @@ export class SidebarCompositor {
 				captured = [];
 			};
 		}
-
-		// Switch to the alternate screen buffer so the terminal has no
-		// scrollback: mouse-wheel scrolling can't move the viewport backwards,
-		// so the sidebar (repainted every render at a fixed screen position)
-		// stays fixed even during wheel scroll. Pi renders into the alternate
-		// buffer; on dispose we switch back to the primary buffer.
-		this.terminal.write("\x1b[?1049h");
 	}
 
 	paint(): void {
@@ -359,11 +352,6 @@ export class SidebarCompositor {
 		if (clearBuf) {
 			this.terminal.write("\x1b[?2026h" + clearBuf + "\x1b[?2026l");
 		}
-
-		// Switch back to the primary screen buffer (matches the ?1049h in
-		// install). Must come after the clear so the clear lands in the
-		// alternate buffer, not the primary.
-		this.terminal.write("\x1b[?1049l");
 	}
 
 	private buildClearContent(): string {

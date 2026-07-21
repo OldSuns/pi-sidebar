@@ -70,32 +70,7 @@ function makeTui(terminal: MockTerminal): {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyTui = any;
 
-/** Returns the merged doRender write (skipping the install-time ?1049h). */
-function mergedWrite(terminal: MockTerminal): string {
-	// writes[0] is the ?1049h from install; writes[1] is the merged render.
-	return terminal.writes[1] ?? "";
-}
-
 describe("SidebarCompositor doRender merge", () => {
-	it("enables alternate screen on install and disables on dispose", () => {
-		const terminal = makeTerminal();
-		const tui = makeTui(terminal);
-		const state = makeState();
-		const compositor = new SidebarCompositor(
-			tui as AnyTui,
-			() => state,
-			() => undefined,
-			theme,
-		);
-		compositor.install();
-		// install emits ?1049h to switch to the alternate screen buffer.
-		expect(terminal.writes[0]).toBe("\x1b[?1049h");
-
-		compositor.dispose();
-		// dispose emits ?1049l to switch back to the primary buffer.
-		expect(terminal.writes[terminal.writes.length - 1]).toBe("\x1b[?1049l");
-	});
-
 	it("folds sidebar paint into a single write with one sync block", () => {
 		const terminal = makeTerminal();
 		const tui = makeTui(terminal);
@@ -108,12 +83,13 @@ describe("SidebarCompositor doRender merge", () => {
 		);
 		compositor.install();
 
+		expect(terminal.writes.length).toBe(0);
+
 		tui.doRender();
 
-		// The hook must collapse doRender + paint into exactly one write
-		// (after the install-time ?1049h).
-		expect(terminal.writes.length).toBe(2);
-		const out = mergedWrite(terminal);
+		// The hook must collapse doRender + paint into exactly one write.
+		expect(terminal.writes.length).toBe(1);
+		const out = terminal.writes[0];
 
 		// doRender's main content survives.
 		expect(out).toContain("main content");
@@ -141,7 +117,7 @@ describe("SidebarCompositor doRender merge", () => {
 		compositor.install();
 		tui.doRender();
 
-		const out = mergedWrite(terminal);
+		const out = terminal.writes[0];
 		expect(out).not.toContain("\u2503");
 	});
 
@@ -158,7 +134,7 @@ describe("SidebarCompositor doRender merge", () => {
 		compositor.install();
 		tui.doRender();
 
-		const out = mergedWrite(terminal);
+		const out = terminal.writes[0];
 		// No heavy separator when disabled; just spaces wiping the region.
 		expect(out).not.toContain("\u2503");
 		// Wipe resets bg color with \x1b[0m and fills with spaces.
@@ -182,8 +158,8 @@ describe("SidebarCompositor doRender merge", () => {
 
 		compositor.dispose();
 
-		// Dispose emitted a clear before the ?1049l: spaces + reset, no separator.
-		const clearOut = terminal.writes[terminal.writes.length - 2];
+		// Dispose emitted a clear: spaces + reset, no separator.
+		const clearOut = terminal.writes[terminal.writes.length - 1];
 		expect(clearOut).toContain("\x1b[0m");
 		expect(clearOut).not.toContain("\u2503");
 		// columns restored to raw 160.
