@@ -1,6 +1,6 @@
 {
   "name": "@oldsuns/pi-sidebar",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Floating right sidebar for pi with git diff/status and session metadata (unofficial fork of jrimmer/pi-sidebar).",
   "license": "BSD-3-Clause",
   "publishConfig": {
