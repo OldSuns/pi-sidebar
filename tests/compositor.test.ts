@@ -104,6 +104,39 @@ describe("SidebarCompositor doRender merge", () => {
 		expect(out.endsWith("\x1b[?2026l")).toBe(true);
 	});
 
+	it("wipes top-row sidebar cells before each \\r\\n scroll into scrollback", () => {
+		const columns = 160;
+		const sidebarWidth = 34;
+		const sepCol = columns - sidebarWidth;
+		const wipePrefix = `\x1b7\x1b[1;${sepCol}H\x1b[0m${" ".repeat(sidebarWidth + 1)}\x1b8`;
+
+		const terminal = makeTerminal(columns);
+		const tui = makeTui(terminal);
+		// Two newlines: one in the sync body, one after (cursor-path style).
+		tui.doRender = () => {
+			terminal.write("\x1b[?2026hmain content\r\nmore\x1b[?2026l");
+			terminal.write("\x1b[5;1H\r\n");
+		};
+		const state = makeState();
+		const compositor = new SidebarCompositor(
+			tui as AnyTui,
+			() => state,
+			() => undefined,
+			theme,
+		);
+		compositor.install();
+		tui.doRender();
+
+		const out = terminal.writes[0];
+		// Every \r\n is preceded by the top-row wipe, still inside one sync block.
+		expect(out.split("\r\n").length - 1).toBe(2);
+		expect(out.split(wipePrefix + "\r\n").length - 1).toBe(2);
+		expect(out.split("\x1b[?2026h").length - 1).toBe(1);
+		expect(out.endsWith("\x1b[?2026l")).toBe(true);
+		// Live paint still draws the separator after the transformed body.
+		expect(out).toContain("\u2503");
+	});
+
 	it("produces no sidebar when terminal is too narrow", () => {
 		const terminal = makeTerminal(80, 24);
 		const tui = makeTui(terminal);
@@ -119,6 +152,9 @@ describe("SidebarCompositor doRender merge", () => {
 
 		const out = terminal.writes[0];
 		expect(out).not.toContain("\u2503");
+		// No top-row wipe either — sidebar is hidden.
+		expect(out).not.toContain("\x1b[1;");
+		expect(out).toContain("\r\n");
 	});
 
 	it("wipes the sidebar region when disabled", () => {

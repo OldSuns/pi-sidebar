@@ -104,6 +104,10 @@ export class SidebarCompositor {
 		// the `?2026l` terminator from doRender's output, appending the paint,
 		// then re-emitting `?2026l`, the whole scroll+repaint is atomic to the
 		// terminal and the sidebar appears fixed.
+		//
+		// Before each `\r\n` that may push a row into scrollback, wipe the
+		// top viewport row's separator+sidebar cells so history no longer
+		// carries sidebar ghosts/overlap.
 		const tuiAny = this.tui as unknown as { doRender?: () => void };
 		if (typeof tuiAny.doRender === "function" && typeof this.terminal.write === "function") {
 			this.originalWrite = this.terminal.write.bind(this.terminal);
@@ -138,11 +142,29 @@ export class SidebarCompositor {
 				self.originalDoRender!();
 				capturing = false;
 				const paintContent = self.buildPaintContent();
+				const wipe = self.buildTopRowSidebarWipe();
+				const body = wipe
+					? captured.join("").replaceAll("\r\n", wipe + "\r\n")
+					: captured.join("");
 				const terminator = syncRemoved ? SYNC_END : "";
-				origWrite(captured.join("") + paintContent + terminator);
+				origWrite(body + paintContent + terminator);
 				captured = [];
 			};
 		}
+	}
+
+	/**
+	 * Erase separator + sidebar cells on viewport row 1 before a `\r\n`
+	 * scrolls that row into scrollback. Empty when the sidebar is hidden.
+	 */
+	private buildTopRowSidebarWipe(): string {
+		if (this.disposed) return "";
+		if ((this.tui as unknown as { stopped?: boolean }).stopped) return "";
+		const rawCols = this.getRawColumns();
+		if (rawCols < MIN_TERMINAL_WIDTH) return "";
+		const sepCol = rawCols - SIDEBAR_WIDTH;
+		// DECSC → row1/sepCol → reset attrs → spaces → DECRC
+		return `\x1b7\x1b[1;${sepCol}H\x1b[0m${" ".repeat(SIDEBAR_WIDTH + 1)}\x1b8`;
 	}
 
 	paint(): void {
