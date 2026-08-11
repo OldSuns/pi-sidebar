@@ -18,7 +18,6 @@ import {
 const SIDEBAR_WIDTH = 34;
 /** Minimum terminal columns required to show the sidebar. Below this, the sidebar is hidden. */
 const MIN_TERMINAL_WIDTH = 120;
-const SIDEBAR_BG = "\x1b[48;2;0;0;0m";
 const BG_RESET = "\x1b[49m";
 const RESET_FG = "\x1b[39m";
 
@@ -215,7 +214,7 @@ export class SidebarCompositor {
 				buf += this.theme.fg("border", row === 1 ? "\u2503" : "\u2502");
 				// Sidebar background + content
 				buf += `\x1b[${row};${sidebarCol}H`;
-				buf += SIDEBAR_BG;
+				buf += BG_RESET;
 				const line = lines[row - 1];
 				if (line !== undefined) {
 					buf += truncateToWidth(line, sw, "", true);

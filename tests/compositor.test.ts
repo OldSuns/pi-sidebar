@@ -137,6 +137,29 @@ describe("SidebarCompositor doRender merge", () => {
 		expect(out).toContain("\u2503");
 	});
 
+	it("uses the terminal default background for every sidebar row", () => {
+		const columns = 160;
+		const rows = 24;
+		const sidebarCol = columns - 34 + 1;
+		const terminal = makeTerminal(columns, rows);
+		const tui = makeTui(terminal);
+		const state = makeState();
+		const compositor = new SidebarCompositor(
+			tui as AnyTui,
+			() => state,
+			() => undefined,
+			theme,
+		);
+		compositor.install();
+		tui.doRender();
+
+		const out = terminal.writes[0];
+		expect(out).not.toContain("\x1b[48;2;0;0;0m");
+		for (let row = 1; row <= rows; row++) {
+			expect(out).toContain(`\x1b[${row};${sidebarCol}H\x1b[49m`);
+		}
+	});
+
 	it("produces no sidebar when terminal is too narrow", () => {
 		const terminal = makeTerminal(80, 24);
 		const tui = makeTui(terminal);
