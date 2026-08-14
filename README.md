@@ -50,7 +50,6 @@ pi remove npm:@oldsuns/pi-sidebar
 - `/sidebar-refresh` — refresh git/status data
 - `/sidebar-git-detail` — toggle changed-file list length
 - `/sidebar-panels on|off` — toggle panels compact mode
-- `ctrl+shift+s` — toggle sidebar
 
 ## Custom Panels
 

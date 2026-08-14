@@ -309,13 +309,4 @@ export default function sidebarPlugin(pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerShortcut("ctrl+shift+s", {
-		description: "Toggle pi sidebar",
-		handler: async (ctx: ExtensionContext) => {
-			currentCtx = ctx;
-			setupSidebar(ctx);
-			state.enabled = !state.enabled;
-			requestRender();
-		},
-	});
 }

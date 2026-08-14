@@ -11,7 +11,7 @@ The extension:
 - polls local git state with `pi.exec("git", [...])`;
 - renders session/model/provider/thinking/context/git/cwd information in a sidebar component;
 - renders changed-file rows with per-file `git diff --numstat` deltas when available;
-- registers `/sidebar`, `/sidebar-refresh`, `/sidebar-git-detail`, and `ctrl+shift+s`.
+- registers `/sidebar`, `/sidebar-refresh`, `/sidebar-git-detail`, and `/sidebar-panels`.
 
 ## Security review
 

@@ -4,7 +4,7 @@
 
 **Background:** Pi currently exposes footer/status/widget extension APIs (`ctx.ui.setStatus`, `ctx.ui.setWidget`, `ctx.ui.setFooter`, `ctx.ui.custom` overlays). A vertical information rail can hold information currently crowded into the footer: session/context, subagent/work status, LSP state, cwd/app info, and especially a repository git diff summary. Pi does not yet expose a native `setSidebar` layout API, so this package must be a plugin-level implementation that uses the supported overlay and footer APIs without patching pi core.
 
-**Approach:** Ship a pi package named `pi-sidebar` containing one extension. On session start it creates a non-capturing right-anchored overlay that behaves like a sidebar on sufficiently wide terminals. The default layout is a floating overlay window anchored at `right-center` with a small upward offset so it lands near the visual middle of pi's transcript area rather than the mathematical middle of the full terminal. An optional full-height fixed-window style starts at the top row, covers the footer row, fills blank rows down the terminal, and includes a small left gutter before the border so present content has visual breathing room from the sidebar. The sidebar renders live sections from extension-accessible data: session title, model name, provider, thinking/reasoning level, context usage, cwd, git branch, git diff counts, changed files, and color-coded per-file add/delete deltas. It registers slash commands and shortcuts to toggle visibility, switch between full-height and floating modes, toggle git detail, and refresh.
+**Approach:** Ship a pi package named `pi-sidebar` containing one extension. On session start it creates a non-capturing right-anchored overlay that behaves like a sidebar on sufficiently wide terminals. The default layout is a floating overlay window anchored at `right-center` with a small upward offset so it lands near the visual middle of pi's transcript area rather than the mathematical middle of the full terminal. An optional full-height fixed-window style starts at the top row, covers the footer row, fills blank rows down the terminal, and includes a small left gutter before the border so present content has visual breathing room from the sidebar. The sidebar renders live sections from extension-accessible data: session title, model name, provider, thinking/reasoning level, context usage, cwd, git branch, git diff counts, changed files, and color-coded per-file add/delete deltas. It registers slash commands to toggle visibility, switch between full-height and floating modes, toggle git detail, and refresh.
 
 **Rejected alternatives:**
 
@@ -25,7 +25,7 @@ In scope:
 - Git status/diff summary from the current repo using `git` CLI.
 - Truncated changed-file list, compact `+/-` totals, and color-coded per-file add/delete deltas.
 - Session/model/provider/thinking/context/cwd metadata sections.
-- Slash commands and keyboard shortcut for user control.
+- Slash commands for user control.
 - README with install/use notes and core API proposal.
 
 Out of scope:
@@ -37,7 +37,7 @@ Out of scope:
 
 **Key decisions:**
 
-- **Plugin API shape:** expose `/sidebar`, `/sidebar-refresh`, and `/sidebar-git-detail`; bind `ctrl+shift+s` to toggle visibility.
+- **Plugin API shape:** expose `/sidebar`, `/sidebar-refresh`, `/sidebar-git-detail`, and `/sidebar-panels`.
 - **Rendering strategy:** use a small custom `Component` class that computes lines in `render(width)` and truncates ANSI-aware via `truncateToWidth`.
 - **Refresh strategy:** poll git status at a conservative interval and force refresh on turn/session/model events. Git work uses `pi.exec`, not `child_process`, so it respects pi's shell execution abstraction.
 - **Responsive behavior:** default sidebar content width is 34 columns plus a 1-column gutter in full-height mode, visible only when terminal width is at least 110 columns. Users can override with environment variables.
