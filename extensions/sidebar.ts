@@ -76,9 +76,9 @@ export default function sidebarPlugin(pi: ExtensionAPI) {
 	let refreshTimer: ReturnType<typeof setInterval> | undefined;
 	let refreshing = false;
 
-	function requestRender() {
+	function requestRender(force = false) {
 		if (compositorRef) {
-			compositorRef.paint();
+			compositorRef.paint(force);
 		}
 	}
 
@@ -179,7 +179,11 @@ export default function sidebarPlugin(pi: ExtensionAPI) {
 			);
 			compositorRef.install();
 
-			refreshTimer = setInterval(() => void refreshGit(), refreshMs);
+			refreshTimer = setInterval(() => {
+				// Terminal scroll/selection can invalidate painted cells without a TUI render.
+				requestRender(true);
+				void refreshGit();
+			}, refreshMs);
 
 			return {
 				dispose() {

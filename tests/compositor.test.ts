@@ -156,6 +156,73 @@ describe("SidebarCompositor doRender merge", () => {
 		expect(second).not.toContain("\u2503");
 	});
 
+	it("repaints an unchanged sidebar after the main viewport scrolls", () => {
+		const terminal = makeTerminal();
+		const tui = makeTui(terminal);
+		let renderCount = 0;
+		tui.doRender = () => {
+			terminal.write(`\x1b[?2026hrender ${renderCount}\r\n\x1b[?2026l`);
+			tui.previousViewportTop = renderCount++;
+		};
+		const state = makeState();
+		const compositor = new SidebarCompositor(
+			tui as AnyTui,
+			() => state,
+			() => undefined,
+			theme,
+		);
+		compositor.install();
+
+		tui.doRender();
+		tui.doRender();
+
+		expect(terminal.writes[1]).toContain("\u2503");
+	});
+
+	it("repaints an unchanged sidebar after a full screen refresh", () => {
+		const terminal = makeTerminal();
+		const tui = makeTui(terminal);
+		let fullRefresh = false;
+		tui.doRender = () => {
+			const body = fullRefresh ? "\x1b[2J\x1b[Hrefreshed" : "initial";
+			terminal.write(`\x1b[?2026h${body}\x1b[?2026l`);
+			fullRefresh = true;
+		};
+		const state = makeState();
+		const compositor = new SidebarCompositor(
+			tui as AnyTui,
+			() => state,
+			() => undefined,
+			theme,
+		);
+		compositor.install();
+
+		tui.doRender();
+		tui.doRender();
+
+		expect(terminal.writes[1]).toContain("\u2503");
+	});
+
+	it("supports forcing a repaint when the terminal changed outside TUI", () => {
+		const terminal = makeTerminal();
+		const tui = makeTui(terminal);
+		const state = makeState();
+		const compositor = new SidebarCompositor(
+			tui as AnyTui,
+			() => state,
+			() => undefined,
+			theme,
+		);
+		compositor.install();
+
+		compositor.paint();
+		compositor.paint();
+		compositor.paint(true);
+
+		expect(terminal.writes.length).toBe(2);
+		expect(terminal.writes[1]).toContain("\u2503");
+	});
+
 	it("does not add wipe sequences to non-scrolling line breaks", () => {
 		const terminal = makeTerminal();
 		const tui = makeTui(terminal);

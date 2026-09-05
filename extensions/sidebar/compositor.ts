@@ -166,9 +166,10 @@ export class SidebarCompositor {
 
 				const snapshot = self.getPaintSnapshot();
 				const paint = self.getPaintContent(snapshot);
-				const shouldClearBeforeScroll =
-					self.didScroll(previousViewportTop) &&
-					!body.includes("\x1b[2J");
+				const didScroll = self.didScroll(previousViewportTop);
+				const didClearScreen = body.includes("\x1b[2J");
+				const screenInvalidated = didScroll || didClearScreen;
+				const shouldClearBeforeScroll = didScroll && !didClearScreen;
 				const clear = shouldClearBeforeScroll
 					? self.buildSidebarRegionClear(snapshot.rawCols, snapshot.rawRows)
 					: "";
@@ -176,7 +177,11 @@ export class SidebarCompositor {
 					? self.insertAfterSyncBegin(body, clear, SYNC_BEGIN)
 					: body;
 				const terminator = syncRemoved ? SYNC_END : "";
-				origWrite(outputBody + (paint.changed ? paint.content : "") + terminator);
+				origWrite(
+					outputBody +
+						(screenInvalidated || paint.changed ? paint.content : "") +
+						terminator,
+				);
 			};
 		}
 	}
@@ -301,10 +306,10 @@ export class SidebarCompositor {
 		return buf + "\x1b[?7h\x1b8";
 	}
 
-	paint(): void {
+	paint(force = false): void {
 		const snapshot = this.getPaintSnapshot();
 		const paint = this.getPaintContent(snapshot);
-		if (!paint.content || !paint.changed) return;
+		if (!paint.content || (!force && !paint.changed)) return;
 		this.terminal.write("\x1b[?2026h" + paint.content + "\x1b[?2026l");
 	}
 
