@@ -1,4 +1,4 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ContextUsage, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 export type Theme = ExtensionContext["ui"]["theme"];
 
@@ -36,6 +36,7 @@ export type SidebarRenderOptions = {
 
 export type SidebarSectionContext = {
 	ctx: ExtensionContext | undefined;
+	contextUsage: ContextUsage | undefined;
 	state: SidebarState;
 	theme: Theme;
 	innerWidth: number;

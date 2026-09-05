@@ -1,6 +1,6 @@
 import type { TUI } from "@earendil-works/pi-tui";
 import { truncateToWidth } from "@earendil-works/pi-tui";
-import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import type { ContextUsage, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { SidebarState } from "./types.ts";
 import { renderModelSection } from "./sections/model.js";
 import { renderSessionSection } from "./sections/session.js";
@@ -20,10 +20,27 @@ const SIDEBAR_WIDTH = 34;
 const MIN_TERMINAL_WIDTH = 120;
 const BG_RESET = "\x1b[49m";
 const RESET_FG = "\x1b[39m";
+// ponytail: cap context refresh at 4 Hz; raise only if sidebar precision improves.
+const CONTEXT_USAGE_CACHE_MS = 250;
 
 // Use opencode sidebar's textMuted color (#808080 / rgb(128,128,128))
 // for both dim and muted levels so secondary text is readable.
 const SIDEBAR_GRAY = "\x1b[38;2;128;128;128m";
+
+type PaintSnapshot = {
+	key: string;
+	rawCols: number;
+	rawRows: number;
+	state: SidebarState;
+	ctx: ExtensionContext | undefined;
+	contextUsage: ContextUsage | undefined;
+	stopped: boolean;
+};
+
+type PaintResult = {
+	content: string;
+	changed: boolean;
+};
 
 /**
  * SidebarCompositor renders a right-sidebar by shrinking `terminal.columns`
@@ -48,7 +65,10 @@ export class SidebarCompositor {
 	private originalWrite: ((data: string) => void) | null = null;
 	private disposed = false;
 	private panelConfig: SidebarUIConfig = {};
-
+	private paintCache: { key: string; content: string } | undefined;
+	private contextUsageCache:
+		| { key: string; at: number; value: ContextUsage | undefined }
+		| undefined;
 
 	constructor(
 		tui: TUI,
@@ -94,24 +114,15 @@ export class SidebarCompositor {
 		const ctx = this.getCtx();
 		this.panelConfig = loadSidebarUIConfig(ctx?.cwd);
 
-		// Hook tui.doRender so we paint the sidebar after every Pi render.
-		// We also wrap terminal.write so the sidebar paint is folded into Pi's
-		// own synchronized-output (`?2026h/l`) block: doRender's `\r\n` scroll
-		// would otherwise wipe the sidebar column, and a separate paint call
-		// would land in its own sync block — the terminal refreshes between
-		// them, so the sidebar visibly flickers on every render. By stripping
-		// the `?2026l` terminator from doRender's output, appending the paint,
-		// then re-emitting `?2026l`, the whole scroll+repaint is atomic to the
-		// terminal and the sidebar appears fixed.
-		//
-		// Before each `\r\n` that may push a row into scrollback, wipe the
-		// top viewport row's separator+sidebar cells so history no longer
-		// carries sidebar ghosts/overlap.
+		// Hook tui.doRender so the sidebar is painted in the same synchronized
+		// output block as Pi. The sidebar is outside Pi's line diff, so it only
+		// needs a repaint when its content changes or the viewport actually scrolls.
 		const tuiAny = this.tui as unknown as { doRender?: () => void };
 		if (typeof tuiAny.doRender === "function" && typeof this.terminal.write === "function") {
 			this.originalWrite = this.terminal.write.bind(this.terminal);
 			this.originalDoRender = tuiAny.doRender.bind(tuiAny);
 			const origWrite = this.originalWrite;
+			const SYNC_BEGIN = "\x1b[?2026h";
 			const SYNC_END = "\x1b[?2026l";
 			let capturing = false;
 			let captured: string[] = [];
@@ -135,41 +146,166 @@ export class SidebarCompositor {
 					self.originalDoRender?.();
 					return;
 				}
+
+				const previousViewportTop = self.getViewportTop();
 				capturing = true;
 				captured = [];
 				syncRemoved = false;
-				self.originalDoRender!();
-				capturing = false;
-				const paintContent = self.buildPaintContent();
-				const wipe = self.buildTopRowSidebarWipe();
-				const body = wipe
-					? captured.join("").replaceAll("\r\n", wipe + "\r\n")
-					: captured.join("");
-				const terminator = syncRemoved ? SYNC_END : "";
-				origWrite(body + paintContent + terminator);
+				let renderError: unknown;
+				try {
+					self.originalDoRender!();
+				} catch (error) {
+					renderError = error;
+				} finally {
+					capturing = false;
+				}
+
+				const body = captured.join("");
 				captured = [];
+				if (renderError !== undefined) throw renderError;
+
+				const snapshot = self.getPaintSnapshot();
+				const paint = self.getPaintContent(snapshot);
+				const shouldClearBeforeScroll =
+					self.didScroll(previousViewportTop) &&
+					!body.includes("\x1b[2J");
+				const clear = shouldClearBeforeScroll
+					? self.buildSidebarRegionClear(snapshot.rawCols, snapshot.rawRows)
+					: "";
+				const outputBody = clear
+					? self.insertAfterSyncBegin(body, clear, SYNC_BEGIN)
+					: body;
+				const terminator = syncRemoved ? SYNC_END : "";
+				origWrite(outputBody + (paint.changed ? paint.content : "") + terminator);
 			};
 		}
 	}
 
-	/**
-	 * Erase separator + sidebar cells on viewport row 1 before a `\r\n`
-	 * scrolls that row into scrollback. Empty when the sidebar is hidden.
-	 */
-	private buildTopRowSidebarWipe(): string {
-		if (this.disposed) return "";
-		if ((this.tui as unknown as { stopped?: boolean }).stopped) return "";
+	private getViewportTop(): number | undefined {
+		const value = (this.tui as unknown as { previousViewportTop?: unknown })
+			.previousViewportTop;
+		return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+	}
+
+	private didScroll(previousViewportTop: number | undefined): boolean {
+		const currentViewportTop = this.getViewportTop();
+		return (
+			previousViewportTop !== undefined &&
+			currentViewportTop !== undefined &&
+			currentViewportTop > previousViewportTop
+		);
+	}
+
+	private insertAfterSyncBegin(body: string, content: string, syncBegin: string): string {
+		const index = body.indexOf(syncBegin);
+		if (index === -1) return content + body;
+		const insertAt = index + syncBegin.length;
+		return body.slice(0, insertAt) + content + body.slice(insertAt);
+	}
+
+	private getPaintSnapshot(): PaintSnapshot {
+		const state = this.getState();
 		const rawCols = this.getRawColumns();
+		const rawRows = this.terminal.rows ?? process.stdout.rows ?? 24;
+		const tuiState = this.tui as unknown as { stopped?: unknown };
+		const stopped = tuiState.stopped === true;
+		const ctx = this.getCtx();
+		const manager = ctx?.sessionManager as unknown as {
+			getLeafId?: () => string | null;
+			getSessionName?: () => string | undefined;
+			sessionFile?: string;
+		} | undefined;
+		const git = state.git;
+		const gitFiles = git.files
+			.slice(0, 12)
+			.map((file) => `${file.code}:${file.path}:${file.delta ?? ""}`)
+			.join("|");
+		const model = ctx?.model;
+		const contextCacheKey = [
+			state.turnCount,
+			state.isStreaming,
+			ctx?.cwd ?? "",
+			manager?.sessionFile ?? "",
+			manager?.getLeafId?.() ?? "",
+			model?.provider ?? "",
+			model?.id ?? "",
+		].join("\x1f");
+		const now = Date.now();
+		let contextUsage: ContextUsage | undefined;
+		if (state.enabled) {
+			const cached = this.contextUsageCache;
+			if (cached && cached.key === contextCacheKey && now - cached.at < CONTEXT_USAGE_CACHE_MS) {
+				contextUsage = cached.value;
+			} else {
+				contextUsage = ctx?.getContextUsage?.();
+				this.contextUsageCache = { key: contextCacheKey, at: now, value: contextUsage };
+			}
+		}
+		const thinkingLevel = state.enabled ? state.getThinkingLevel() : "";
+		const key = [
+			rawCols,
+			rawRows,
+			stopped,
+			state.enabled,
+			state.gitDetail,
+			state.turnCount,
+			state.isStreaming,
+			state.lastTool ?? "",
+			state.panelsCompact === true,
+			git.insideRepo,
+			git.error ?? "",
+			git.branch ?? "",
+			git.insertions,
+			git.deletions,
+			git.changedFiles,
+			git.files.length,
+			gitFiles,
+			ctx?.cwd ?? "",
+			manager?.sessionFile ?? "",
+			manager?.getSessionName?.() ?? "",
+			manager?.getLeafId?.() ?? "",
+			model?.provider ?? "",
+			model?.id ?? "",
+			model?.name ?? "",
+			model?.reasoning ?? false,
+			thinkingLevel,
+			contextUsage?.tokens ?? "",
+			contextUsage?.contextWindow ?? "",
+			contextUsage?.percent ?? "",
+		].join("\x1f");
+		return { key, rawCols, rawRows, state, ctx, contextUsage, stopped };
+	}
+
+	private getPaintContent(snapshot: PaintSnapshot): PaintResult {
+		if (this.paintCache?.key === snapshot.key) {
+			return { content: this.paintCache.content, changed: false };
+		}
+		const content = this.buildPaintContent(snapshot);
+		this.paintCache = { key: snapshot.key, content };
+		return { content, changed: true };
+	}
+
+	/**
+	 * Clear the complete sidebar region once before a real scroll. Clearing the
+	 * region up front prevents every scrolled row from carrying sidebar cells
+	 * into scrollback, without rewriting every ordinary line break.
+	 */
+	private buildSidebarRegionClear(rawCols: number, rawRows: number): string {
 		if (rawCols < MIN_TERMINAL_WIDTH) return "";
 		const sepCol = rawCols - SIDEBAR_WIDTH;
-		// DECSC → row1/sepCol → reset attrs → spaces → DECRC
-		return `\x1b7\x1b[1;${sepCol}H\x1b[0m${" ".repeat(SIDEBAR_WIDTH + 1)}\x1b8`;
+		let buf = "\x1b7\x1b[?7l";
+		for (let row = 1; row <= rawRows; row++) {
+			buf += `\x1b[${row};${sepCol}H\x1b[0m`;
+			buf += " ".repeat(SIDEBAR_WIDTH + 1);
+		}
+		return buf + "\x1b[?7h\x1b8";
 	}
 
 	paint(): void {
-		const content = this.buildPaintContent();
-		if (!content) return;
-		this.terminal.write("\x1b[?2026h" + content + "\x1b[?2026l");
+		const snapshot = this.getPaintSnapshot();
+		const paint = this.getPaintContent(snapshot);
+		if (!paint.content || !paint.changed) return;
+		this.terminal.write("\x1b[?2026h" + paint.content + "\x1b[?2026l");
 	}
 
 	/**
@@ -177,18 +313,12 @@ export class SidebarCompositor {
 	 * The caller (`paint` or the doRender hook) is responsible for wrapping
 	 * this in `?2026h/l` so it can be merged with Pi's own sync block.
 	 */
-	private buildPaintContent(): string {
-		if (this.disposed) return "";
-		// Skip painting while TUI is stopped (e.g. external editor active)
-		// to avoid ANSI codes overwriting the editor's display.
-		if ((this.tui as unknown as { stopped?: boolean }).stopped) return "";
-
-		const state = this.getState();
-		const rawCols = this.getRawColumns();
+	private buildPaintContent(snapshot: PaintSnapshot): string {
+		if (this.disposed || snapshot.stopped) return "";
+		const { state, rawCols, rawRows, ctx, contextUsage } = snapshot;
 		// Hide sidebar when terminal is too narrow
 		if (rawCols < MIN_TERMINAL_WIDTH) return "";
 
-		const rawRows = this.terminal.rows ?? process.stdout.rows ?? 24;
 		const sw = SIDEBAR_WIDTH;
 		const sepCol = rawCols - sw;
 		const sidebarCol = sepCol + 1;
@@ -203,11 +333,10 @@ export class SidebarCompositor {
 				buf += " ".repeat(sw + 1);
 			}
 		} else {
-			const ctx = this.getCtx();
 			const buffer = 1;
 			const contentWidth = Math.max(8, sw - buffer);
 			const innerWidth = Math.max(8, contentWidth - 3);
-			const lines = this.buildSidebarContent(ctx, state, innerWidth, rawRows);
+			const lines = this.buildSidebarContent(ctx, state, innerWidth, rawRows, contextUsage);
 			for (let row = 1; row <= rawRows; row++) {
 				// Separator at the boundary between Pi content and sidebar
 				buf += `\x1b[${row};${sepCol}H`;
@@ -244,6 +373,7 @@ export class SidebarCompositor {
 		state: SidebarState,
 		innerWidth: number,
 		rawRows: number,
+		contextUsage: ContextUsage | undefined,
 	): string[] {
 		const lines: string[] = [];
 		const fmtLine = (line: string) =>
@@ -262,6 +392,7 @@ export class SidebarCompositor {
 		// Helper to build a section proxy with custom add/heading
 		const makeSection = (a: typeof add, h: typeof heading) => ({
 			ctx,
+			contextUsage,
 			state,
 			theme: this.theme,
 			innerWidth,
@@ -286,17 +417,20 @@ export class SidebarCompositor {
 			// ── Compact mode: budget panels so Git/Location/Hint always visible ──
 			const topLines = lines.length;
 
-			// Count bottom sections
-			let bottomCount = 0;
-			const countAdd: typeof add = () => { bottomCount++; };
-			const countHeading: typeof heading = () => { bottomCount += 2; };
-			const countSection = makeSection(countAdd, countHeading);
-			renderGitSection(countSection);
-			renderLocationSection(countSection);
-			renderHintSection(countSection);
+			// Render bottom sections once, then use their length for budgeting.
+			const bottomLines: string[] = [];
+			const bottomAdd: typeof add = (line = "") => { bottomLines.push(line); };
+			const bottomHeading: typeof heading = (label: string) => {
+				bottomLines.push();
+				bottomLines.push(this.theme.fg("text", this.theme.bold(label)));
+			};
+			const bottomSection = makeSection(bottomAdd, bottomHeading);
+			renderGitSection(bottomSection);
+			renderLocationSection(bottomSection);
+			renderHintSection(bottomSection);
 
 			// Budget for panels
-			let panelBudget = rawRows - topLines - bottomCount;
+			let panelBudget = rawRows - topLines - bottomLines.length;
 
 			// Render panels within budget
 			if (panelBudget > 0) {
@@ -316,9 +450,7 @@ export class SidebarCompositor {
 			}
 
 			// Bottom sections always rendered
-			renderGitSection(makeSection(add, heading));
-			renderLocationSection(makeSection(add, heading));
-			renderHintSection(makeSection(add, heading));
+			for (const line of bottomLines) add(line);
 		} else {
 			// ── Normal mode: render everything in order, no budget ──
 			renderExternalPanels(ctx, this.panelConfig, this.theme, innerWidth, add, heading);
@@ -368,26 +500,13 @@ export class SidebarCompositor {
 		}
 
 		// Clear the sidebar region so it doesn't linger on screen after exit.
-		// Columns are restored above, so this.terminal.columns is the raw width.
-		const clearBuf = this.buildClearContent();
+		// Columns are restored above, so use the raw terminal width here.
+		const clearBuf = this.buildSidebarRegionClear(
+			this.originalColumnsDesc ? this.getRawColumns() : this.terminal.columns,
+			this.terminal.rows ?? process.stdout.rows ?? 24,
+		);
 		if (clearBuf) {
 			this.terminal.write("\x1b[?2026h" + clearBuf + "\x1b[?2026l");
 		}
-	}
-
-	private buildClearContent(): string {
-		const rawCols = this.terminal.columns;
-		const rawRows = this.terminal.rows ?? process.stdout.rows ?? 24;
-		if (rawCols < MIN_TERMINAL_WIDTH) return "";
-		const sw = SIDEBAR_WIDTH;
-		const sepCol = rawCols - sw;
-		let buf = "\x1b7\x1b[?7l";
-		for (let row = 1; row <= rawRows; row++) {
-			// Overwrite separator + sidebar with spaces, resetting any bg color
-			buf += `\x1b[${row};${sepCol}H\x1b[0m`;
-			buf += " ".repeat(sw + 1);
-		}
-		buf += "\x1b[?7h\x1b8";
-		return buf;
 	}
 }
