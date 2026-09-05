@@ -2,9 +2,9 @@ import { fmtNumber } from "../utils.js";
 import type { SidebarSectionContext } from "../types.js";
 
 export function renderContextSection(section: SidebarSectionContext): void {
-	const { add, muted } = section;
+	const { ctx, add, muted } = section;
 	section.heading("Context");
-	const usage = section.contextUsage;
+	const usage = ctx?.getContextUsage?.();
 	if (usage) {
 		const tokenText =
 			usage.tokens == null ? "unknown" : fmtNumber(usage.tokens);

@@ -55,12 +55,10 @@ function makeTerminal(columns = 160, rows = 24): MockTerminal {
 function makeTui(terminal: MockTerminal): {
 	doRender: () => void;
 	stopped: boolean;
-	previousViewportTop: number;
 	terminal: MockTerminal;
 } {
 	return {
 		stopped: false,
-		previousViewportTop: 0,
 		terminal,
 		doRender() {
 			terminal.write("\x1b[?2026hmain content\r\nmore\x1b[?2026l");
@@ -106,13 +104,18 @@ describe("SidebarCompositor doRender merge", () => {
 		expect(out.endsWith("\x1b[?2026l")).toBe(true);
 	});
 
-	it("clears the sidebar once before an actual scroll", () => {
+	it("wipes top-row sidebar cells before each \\r\\n scroll into scrollback", () => {
 		const columns = 160;
+		const sidebarWidth = 34;
+		const sepCol = columns - sidebarWidth;
+		const wipePrefix = `\x1b7\x1b[1;${sepCol}H\x1b[0m${" ".repeat(sidebarWidth + 1)}\x1b8`;
+
 		const terminal = makeTerminal(columns);
 		const tui = makeTui(terminal);
+		// Two newlines: one in the sync body, one after (cursor-path style).
 		tui.doRender = () => {
-			terminal.write("\x1b[?2026hmain content\r\nmore\r\n\x1b[?2026l");
-			tui.previousViewportTop = 2;
+			terminal.write("\x1b[?2026hmain content\r\nmore\x1b[?2026l");
+			terminal.write("\x1b[5;1H\r\n");
 		};
 		const state = makeState();
 		const compositor = new SidebarCompositor(
@@ -125,148 +128,13 @@ describe("SidebarCompositor doRender merge", () => {
 		tui.doRender();
 
 		const out = terminal.writes[0];
-		// Ordinary line breaks remain untouched; only the sidebar paint follows them.
+		// Every \r\n is preceded by the top-row wipe, still inside one sync block.
 		expect(out.split("\r\n").length - 1).toBe(2);
-		expect(out).toContain("\x1b[?2026h\x1b7\x1b[?7l\x1b[1;126H");
-		expect(out).toContain("\x1b[24;126H");
-		expect(out).not.toContain("\x1b[1;126H\x1b[0m                                 \x1b8");
+		expect(out.split(wipePrefix + "\r\n").length - 1).toBe(2);
 		expect(out.split("\x1b[?2026h").length - 1).toBe(1);
 		expect(out.endsWith("\x1b[?2026l")).toBe(true);
 		// Live paint still draws the separator after the transformed body.
 		expect(out).toContain("\u2503");
-	});
-
-	it("does not wipe or repaint an unchanged sidebar", () => {
-		const terminal = makeTerminal();
-		const tui = makeTui(terminal);
-		const state = makeState();
-		const compositor = new SidebarCompositor(
-			tui as AnyTui,
-			() => state,
-			() => undefined,
-			theme,
-		);
-		compositor.install();
-
-		tui.doRender();
-		tui.doRender();
-
-		const second = terminal.writes[1];
-		expect(second).toBe("\x1b[?2026hmain content\r\nmore\x1b[5;1H\x1b[?2026l");
-		expect(second).not.toContain("\u2503");
-	});
-
-	it("repaints an unchanged sidebar after the main viewport scrolls", () => {
-		const terminal = makeTerminal();
-		const tui = makeTui(terminal);
-		let renderCount = 0;
-		tui.doRender = () => {
-			terminal.write(`\x1b[?2026hrender ${renderCount}\r\n\x1b[?2026l`);
-			tui.previousViewportTop = renderCount++;
-		};
-		const state = makeState();
-		const compositor = new SidebarCompositor(
-			tui as AnyTui,
-			() => state,
-			() => undefined,
-			theme,
-		);
-		compositor.install();
-
-		tui.doRender();
-		tui.doRender();
-
-		expect(terminal.writes[1]).toContain("\u2503");
-	});
-
-	it("repaints an unchanged sidebar after a full screen refresh", () => {
-		const terminal = makeTerminal();
-		const tui = makeTui(terminal);
-		let fullRefresh = false;
-		tui.doRender = () => {
-			const body = fullRefresh ? "\x1b[2J\x1b[Hrefreshed" : "initial";
-			terminal.write(`\x1b[?2026h${body}\x1b[?2026l`);
-			fullRefresh = true;
-		};
-		const state = makeState();
-		const compositor = new SidebarCompositor(
-			tui as AnyTui,
-			() => state,
-			() => undefined,
-			theme,
-		);
-		compositor.install();
-
-		tui.doRender();
-		tui.doRender();
-
-		expect(terminal.writes[1]).toContain("\u2503");
-	});
-
-	it("supports forcing a repaint when the terminal changed outside TUI", () => {
-		const terminal = makeTerminal();
-		const tui = makeTui(terminal);
-		const state = makeState();
-		const compositor = new SidebarCompositor(
-			tui as AnyTui,
-			() => state,
-			() => undefined,
-			theme,
-		);
-		compositor.install();
-
-		compositor.paint();
-		compositor.paint();
-		compositor.paint(true);
-
-		expect(terminal.writes.length).toBe(2);
-		expect(terminal.writes[1]).toContain("\u2503");
-	});
-
-	it("does not add wipe sequences to non-scrolling line breaks", () => {
-		const terminal = makeTerminal();
-		const tui = makeTui(terminal);
-		tui.doRender = () => {
-			terminal.write("\x1b[?2026hfirst\r\nsecond\r\nthird\x1b[?2026l");
-		};
-		const state = makeState();
-		const compositor = new SidebarCompositor(
-			tui as AnyTui,
-			() => state,
-			() => undefined,
-			theme,
-		);
-		compositor.install();
-		tui.doRender();
-
-		const out = terminal.writes[0];
-		expect(out.split("\r\n").length - 1).toBe(2);
-		expect(out).not.toContain("\x1b[1;126H\x1b[0m");
-	});
-
-	it("caches context usage across rapid renders", () => {
-		const terminal = makeTerminal();
-		const tui = makeTui(terminal);
-		const state = makeState();
-		let usageCalls = 0;
-		const ctx = {
-			getContextUsage() {
-				usageCalls++;
-				return { tokens: 100, contextWindow: 1_000, percent: 10 };
-			},
-		};
-		const compositor = new SidebarCompositor(
-			tui as AnyTui,
-			() => state,
-			() => ctx as AnyTui,
-			theme,
-		);
-		compositor.install();
-
-		tui.doRender();
-		tui.doRender();
-
-		expect(usageCalls).toBe(1);
 	});
 
 	it("uses the terminal default background for every sidebar row", () => {
