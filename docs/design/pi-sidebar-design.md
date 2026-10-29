@@ -1,6 +1,6 @@
 # Pi Sidebar 设计文档
 
-- 包：`@oldsuns/pi-sidebar` 1.0.0-alpha.1；宿主 Pi 1.4.0（`@earendil-works/pi-coding-agent`、`@earendil-works/pi-tui`），只支持 fullscreen TUI。
+- 包：`@oldsuns/pi-sidebar` 1.0.0；宿主 Pi 1.4.0（`@earendil-works/pi-coding-agent`、`@earendil-works/pi-tui`），只支持 fullscreen TUI。
 - 状态：功能完成，自动化检查全部通过；剩余手工验证见 §7.2。更新于 2026-10-29。
 - 证据：`PKG` = `<pi 安装目录>/node_modules/@earendil-works/pi-coding-agent/`，`TUI` = 同目录下的 `@earendil-works/pi-tui/`。**推断** = 读源码得出、没有运行验证。
 
@@ -132,7 +132,7 @@ mouse click ─► handleMouse ─► controller.act(action) ─► 设置 / 展
 - **PKG-3** 只 import `@earendil-works/*`。
 - **PKG-4** 没有运行时依赖和开发依赖：类型检查与测试用已安装 Pi 的包（`scripts/pi-root.mjs`），CI 从 npm 安装 Pi。
 - **PKG-5** README 写明前提、命令、设置文件、工作方式、git 安全说明和开发命令。
-- **PKG-6** 版本从 1.0.0 开始（当前 1.0.0-alpha.1）；发布前选定许可证。
+- **PKG-6** 版本从 1.0.0 开始；许可是 MIT（`LICENSE`，`package.json` 同步）。
 - **PKG-7** 源码只用可擦除的 TypeScript 语法，Node 直接运行测试。
 
 ### 4.2 生命周期
@@ -364,7 +364,7 @@ Pi 内置 light 主题（面板色不够区分时改用自带色相、跟随主�
 ### 6.7 诊断输出：`/sidebar status`
 
 ```text
-pi-sidebar 1.0.0-alpha.1 · fullscreen · mounted · visible
+pi-sidebar 1.0.0 · fullscreen · mounted · visible
 size     width 36 (auto) · main 145 · terminal 181x56
 rules    auto · 36 if cols-36 >= 64, else 28 if cols-28 >= 64, else hidden · +4 cols to step up
 look     colors theme · icons unicode · theme catppuccin-tui-mocha
