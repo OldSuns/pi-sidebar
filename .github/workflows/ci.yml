@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # Every Monday against the newest Pi, to notice a release that moves the private layout root (R1).
+    - cron: "23 4 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test · ${{ matrix.os }} · node ${{ matrix.node }} · pi ${{ matrix.pi }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        # Pi 1.4.0 needs Node 22.19 or later.
+        node: ["22.19.0", "24"]
+        pi: ["1.4.0"]
+        include:
+          - os: ubuntu-latest
+            node: "24"
+            pi: latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # The package has no dependencies of its own: Pi provides its packages at runtime, so the
+      # checks run against a Pi installed beside the checkout, as scripts/pi-root.mjs expects.
+      - name: Install Pi ${{ matrix.pi }} and TypeScript beside the checkout
+        shell: bash
+        run: |
+          mkdir -p .ci/pi
+          npm install --prefix .ci/pi --no-audit --no-fund --loglevel=error \
+            "@earendil-works/pi-coding-agent@${{ matrix.pi }}" \
+            "@earendil-works/pi-tui@${{ matrix.pi }}" \
+            "@types/node@22" \
+            "typescript@7"
+          node -e "console.log('pi', require('./.ci/pi/node_modules/@earendil-works/pi-coding-agent/package.json').version)"
+
+      - name: Type check
+        run: npm run typecheck
+        env:
+          PI_NODE_MODULES: ${{ github.workspace }}/.ci/pi/node_modules
+
+      - name: Unit and integration tests
+        run: npm test
+        env:
+          PI_NODE_MODULES: ${{ github.workspace }}/.ci/pi/node_modules
+
+  checks:
+    name: rules · package · docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Main-window rules (design §4.0)
+        run: node scripts/check-rules.mjs
+
+      - name: Package contents and manifest
+        run: node scripts/check-package.mjs
+
+      - name: Documentation structure
+        run: node scripts/check-docs.mjs

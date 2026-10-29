@@ -1,0 +1,40 @@
+{
+  "name": "@oldsuns/pi-sidebar",
+  "version": "1.0.0-alpha.1",
+  "description": "Session sidebar for Pi's fullscreen TUI: context, usage, activity, git and tools beside the conversation",
+  "type": "module",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "sidebar",
+    "tui"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "files": [
+    "src/",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "scripts": {
+    "typecheck": "node scripts/typecheck.mjs",
+    "test": "node --import ./test/support/register.mjs --test \"test/**/*.test.ts\"",
+    "rules": "node scripts/check-rules.mjs",
+    "docs": "node scripts/check-docs.mjs",
+    "pack:check": "node scripts/check-package.mjs",
+    "preview": "node --import ./test/support/register.mjs scripts/preview.ts",
+    "bench": "node --import ./test/support/register.mjs scripts/bench.ts",
+    "screenshots": "node --import ./test/support/register.mjs scripts/screenshot.ts && node --import ./test/support/register.mjs scripts/screenshot.ts --theme light --shots pi-fullscreen && node --import ./test/support/register.mjs scripts/screenshot.ts --states",
+    "check": "npm run rules && npm run typecheck && npm test && npm run pack:check && npm run docs"
+  }
+}

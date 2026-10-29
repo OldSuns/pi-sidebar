@@ -1,0 +1,7 @@
+version: 2
+updates:
+  # Keep the workflow actions current; the package itself has no dependencies to update.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
