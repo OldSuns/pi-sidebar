@@ -19,7 +19,7 @@ import {
 } from "./config.ts";
 import { GitMonitor } from "./git/monitor.ts";
 import { type LayoutSettings, LayoutHost, tuiPort } from "./host/layout-host.ts";
-import { STEP_UP_MARGIN, type SidebarWidth, type WidthSetting } from "./layout/width.ts";
+import { STEP_UP_MARGIN, WIDE_MAIN_EXTRA, type SidebarWidth, type WidthSetting } from "./layout/width.ts";
 import {
   endRun,
   endTool,
@@ -622,7 +622,9 @@ export class SidebarController implements SidebarModel, SidebarActions {
   setWidth(width: WidthSetting): string {
     this.config = { ...this.config, width };
     const detail =
-      width === "auto" ? `auto · 36 when main keeps >= ${this.config.minMainWidth} cols, else 28, else hidden` : String(width);
+      width === "auto"
+        ? `auto · 36 when main keeps >= ${this.config.minMainWidth + WIDE_MAIN_EXTRA} cols, else 28 when >= ${this.config.minMainWidth}, else hidden`
+        : String(width);
     return this.withModeNote(`sidebar: width set to ${detail} ${this.apply()}`);
   }
 
@@ -686,7 +688,7 @@ export class SidebarController implements SidebarModel, SidebarActions {
     else if (layout.state === "disabled") headline += " (/sidebar off)";
     const rules =
       config.width === "auto"
-        ? `auto · 36 if cols-36 >= ${min}, else 28 if cols-28 >= ${min}, else hidden`
+        ? `auto · 36 if cols-36 >= ${min + WIDE_MAIN_EXTRA}, else 28 if cols-28 >= ${min}, else hidden`
         : `fixed · ${config.width} if cols-${config.width} >= ${min}, else hidden`;
     const shown = ["session", "context", ...BODY_PANELS.filter((panel) => config.panels[panel])];
     const hidden = BODY_PANELS.filter((panel) => !config.panels[panel]);

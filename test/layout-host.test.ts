@@ -85,9 +85,9 @@ test("mounting keeps Pi's root unchanged in the left cell; detaching puts it bac
   const root = port.root();
   assert.ok(root instanceof HStack);
   assert.notEqual(root, base);
-  const laidOut = renderLayoutFrame(root, 120, 40, () => {});
+  const laidOut = renderLayoutFrame(root, 160, 40, () => {});
   assert.equal(laidOut.root.children[0]?.component, base);
-  assert.equal(laidOut.root.children[0]?.rect.width, 84);
+  assert.equal(laidOut.root.children[0]?.rect.width, 124);
   assert.equal(host.info().width, 36);
   assert.equal(host.info().state, "mounted");
   host.detach();
@@ -103,16 +103,16 @@ test("terminal width decides 36, 28 or hidden, with hysteresis, and the main are
   await flush();
   const root = port.root();
   const steps: [number, number][] = [
-    [120, 84],
-    [100, 64],
-    [99, 71],
+    [160, 124],
+    [146, 110],
+    [145, 117],
     [92, 64],
     [91, 91],
     [80, 80],
     [95, 95],
     [96, 68],
-    [103, 75],
-    [104, 68],
+    [149, 121],
+    [150, 114],
   ];
   for (const [columns, main] of steps) assert.equal(frame(root, columns), main, `terminal ${columns}`);
   assert.deepEqual(widths, [36, 28, 0, 28, 36]);

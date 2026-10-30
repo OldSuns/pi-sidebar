@@ -76,15 +76,15 @@ TuiAltScreen.layoutRoot
 - **取 `tui`**：在编辑器下方注册 key 为 `pi-sidebar:host` 的 0 行 widget（F11），工厂立即拿到稳定 Proxy `tui` 和主题；它每帧被渲染，顺便当布局根的看门狗。这是插件在主窗口里唯一的存在。
 - **挂载**：`sync()` 用 `queueMicrotask` 在渲染之外执行。`port.root()` 读 `tui.layoutRoot`（唯一私有访问），必须是 `VStack` 或 `HStack`，否则 fail closed；已是自己的包裹或被包在外面就跳过；残留包裹先取出原根。然后 `new HStack([{component: base, basis: 0, grow: 1, shrink: 1}, frame36, frame28])`，打 `Symbol.for("@oldsuns/pi-sidebar:owner")` 标记、存原根，再 `setLayoutRoot`。
 - **冲突与卸载**：原根换成别的对象才记一次，60 秒内超过 5 次进入 `failed` 主动退让（切换模式放回同一对象不计）。`layoutRoot` 仍是自己的包裹就放回原根，已被包住就让两格 `visible` 为 false。fullscreen → regular 进 `inactive` 不提示，退回时下一帧重新包裹；退出打印不经过布局根（F14）。
-- **宽度**：`auto` 时在主区不窄于 `minMainWidth`（默认 64）的前提下优先 36，其次 28，否则隐藏；固定 28/36 放不下也隐藏。比当前更宽的选择要求主区多留 4 列（滞回），选择是纯函数，同一宽度重复调用结果不变。
+- **宽度**：`auto` 时主区不窄于 `minMainWidth + 46`（默认 110）用 36，不窄于 `minMainWidth`（默认 64）用 28，否则隐藏；固定 28/36 只要求 `minMainWidth`，放不下就隐藏。比当前更宽的选择要求主区多留 4 列（滞回），选择是纯函数，同一宽度重复调用结果不变。
 
 | 终端列数 | 侧栏 | 主区 | 样式 |
 |---|---|---|---|
-| ≥ 100 | 36 | cols − 36（≥ 64） | 圆角框 |
-| 92–99 | 28 | cols − 28（64–71） | 标题线 |
+| ≥ 146 | 36 | cols − 36（≥ 110） | 圆角框 |
+| 92–145 | 28 | cols − 28（64–117） | 标题线 |
 | ≤ 91 | 隐藏 | 全宽 | — |
 
-从窄往宽时 96 列出现 28 列侧栏，104 列升到 36。36 列内容宽 31，28 列内容宽 26。终端不足 28 行时 SESSION 与 CONTEXT 合并成 3 行紧凑框，不足 12 行只显示它。
+从窄往宽时 96 列出现 28 列侧栏，150 列升到 36。36 列内容宽 31，28 列内容宽 26。终端不足 28 行时 SESSION 与 CONTEXT 合并成 3 行紧凑框，不足 12 行只显示它。
 
 - **侧栏内部**：`PanelsView` 渲染成行并缓存 `(快照版本, 宽度, 设置版本, 调色板)`；`EdgeFiller` 只在 28 宽填充到底；两者包在 `SidebarScroll`（覆写 `scrollBy` 总返回 0），滚轮不带动对话区（F9）。面板是纯函数 `(snapshot, view, tier, width) => Panel`，框线与标题线统一绘制。
 - **鼠标**：`PanelsView` 实现 `handleMouse`（F27），只在带动作的行接管左键按下，`clickCount === 1` 才执行，从不返回 `focus: true`；其余行照常选字。点击标题折叠或展开（保存 `folded`），点 `▸ Breakdown` 展开成分明细（保存），点 `… N more`、`▸ names` 展开列表（只在本会话有效）。
@@ -366,7 +366,7 @@ Pi 内置 light 主题（面板色不够区分时改用自带色相、跟随主�
 ```text
 pi-sidebar 1.0.1 · fullscreen · mounted · visible
 size     width 36 (auto) · main 145 · terminal 181x56
-rules    auto · 36 if cols-36 >= 64, else 28 if cols-28 >= 64, else hidden · +4 cols to step up
+rules    auto · 36 if cols-36 >= 110, else 28 if cols-28 >= 64, else hidden · +4 cols to step up
 look     colors theme · icons unicode · theme catppuccin-tui-mocha
 panels   session, context, usage, activity, git, tools, workspace
 context  breakdown estimated from the latest request

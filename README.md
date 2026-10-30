@@ -21,7 +21,7 @@ SESSION and CONTEXT stay pinned at the top; the other panels scroll under them.
 ## Requirements
 
 - Pi 1.4.0 or later, in fullscreen TUI mode (`/settings` → TUI mode). In regular mode the sidebar stays off.
-- A terminal at least 92 columns wide. The sidebar takes 36 columns while the conversation keeps 64 or more, else 28, else it hides until the terminal is wider again.
+- A terminal at least 92 columns wide. The sidebar takes 36 columns while the conversation keeps 110 or more (`minMainWidth` + 46; a terminal about 150 wide), else 28 while it keeps 64 or more, else it hides until the terminal is wider again.
 
 ## Install
 

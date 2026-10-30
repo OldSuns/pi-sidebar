@@ -5,6 +5,9 @@ export type WidthSetting = "auto" | SidebarWidth;
 /** Extra main-area columns needed before the sidebar appears or grows, so a dragged window edge does not flap. */
 export const STEP_UP_MARGIN = 4;
 
+/** In auto, 36 also needs this many main-area columns beyond minMainWidth: at the default 64 it appears from 150 columns. */
+export const WIDE_MAIN_EXTRA = 46;
+
 /**
  * Pick the sidebar width for a terminal `cols` wide, given the width shown now (0 = hidden).
  * The result is a fixpoint: passing it back as `current` with the same `cols` returns it again,
@@ -13,7 +16,8 @@ export const STEP_UP_MARGIN = 4;
 export function pickWidth(cols: number, current: 0 | SidebarWidth, setting: WidthSetting, minMainWidth: number): 0 | SidebarWidth {
   const candidates: readonly SidebarWidth[] = setting === "auto" ? [36, 28] : [setting];
   for (const width of candidates) {
-    const need = minMainWidth + (width > current ? STEP_UP_MARGIN : 0);
+    const extra = setting === "auto" && width === 36 ? WIDE_MAIN_EXTRA : 0;
+    const need = minMainWidth + extra + (width > current ? STEP_UP_MARGIN : 0);
     if (cols - width >= need) return width;
   }
   return 0;
