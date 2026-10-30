@@ -1,6 +1,6 @@
 {
   "name": "@oldsuns/pi-sidebar",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Session sidebar for Pi's fullscreen TUI: context, usage, activity, git and tools beside the conversation",
   "type": "module",
   "keywords": [
