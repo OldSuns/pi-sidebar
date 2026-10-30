@@ -158,7 +158,7 @@ mouse click ─► handleMouse ─► controller.act(action) ─► 设置 / 展
 - **R-2** render 只读快照：不调 Pi API，不遍历条目，不做 I/O；耗时用快照里的 `clock`。
 - **R-3** 结果按 `(快照版本, 宽度, 设置版本, 调色板)` 缓存；主题切换时 `invalidate()` 并重算调色板。
 - **R-4 颜色**：一律经 `palette` 取得，再经 `theme.style` 输出。
-  - `theme`：取主题 token；边框淡色 = `mixColors(面板色, borderMuted, 0.35, "srgb")`，进度条底槽同法 0.72（OKLCH 会把暖色混向偏蓝的 `borderMuted` 而偏红）。
+  - `theme`：取主题 token；边框淡色 = `mixColors(面板色, borderMuted, 0.35, "srgb")`，进度条底槽同法 0.72（OKLCH 会把暖色混向偏蓝的 `borderMuted` 而偏红）。已用部分的末格用部分方块 `▏…▉`，这一格连同背景填底槽色，否则终端背景会在格子右侧露出来；`mono` 底槽是 `░` 图案，不设背景。
   - 七个面板 token 都有颜色（OKHSL 饱和度 ≥ 0.25）且两两色相 ≥ 20° 时直接用（catppuccin mocha）；否则改用自带色相，饱和度与亮度取主题里有颜色的面板 token 的平均值（内置 dark、light 属于这种，F36）。
   - `vivid`：固定 RGB 色板，语义色取主题；浅色背景时改用同色相、饱和度 0.9、亮度 0.5。`mono`：只用 `text`、`muted`、`dim`、加粗和语义色，成分条改用图案；`NO_COLOR` 强制 mono。
 - **R-5 符号**：只用单列宽符号；成分明细的图例用 `■`（`█` 占满整格，相邻图例会连成色柱）；`icons ascii` 全部换 ASCII 并关掉滚动条。

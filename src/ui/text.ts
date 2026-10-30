@@ -7,6 +7,8 @@ export interface Seg {
   readonly text: string;
   readonly role?: Role;
   readonly bold?: boolean;
+  /** Background role; only the context bar's partial cell uses it, so the uncovered part shows the track. */
+  readonly bg?: Role;
 }
 export type Line = readonly Seg[];
 
@@ -116,16 +118,17 @@ export function bar(
   accentCells = 0,
 ): Seg[] {
   if (cells <= 0) return [];
-  const marks: { text: string; role: Role }[] = [];
+  const marks: { text: string; role: Role; bg?: Role }[] = [];
   if (percent !== null) {
     const exact = (Math.max(0, Math.min(100, percent)) / 100) * cells;
     const steps = glyphs.partials.length;
     const full = steps > 1 ? Math.floor(exact) : Math.round(exact);
     for (let index = 0; index < full; index++) marks.push({ text: glyphs.full, role: fill });
     const partial = steps > 1 ? glyphs.partials[Math.floor((exact - full) * steps)] : undefined;
-    if (partial && marks.length < cells) marks.push({ text: partial, role: fill });
+    // The partial glyph covers only the left of its cell; the track colour behind it fills the rest.
+    if (partial && marks.length < cells) marks.push({ text: partial, role: fill, bg: "track" });
     for (let index = Math.max(0, marks.length - accentCells); index < marks.length; index++) {
-      marks[index] = { text: marks[index]?.text ?? glyphs.full, role: "run" };
+      marks[index] = { ...marks[index], text: marks[index]?.text ?? glyphs.full, role: "run" };
     }
   }
   while (marks.length < cells) marks.push({ text: glyphs.track, role: "track" });
@@ -136,8 +139,8 @@ export function bar(
   const runs: Seg[] = [];
   for (const mark of marks) {
     const last = runs.at(-1);
-    if (last && last.role === mark.role) runs[runs.length - 1] = { ...last, text: last.text + mark.text };
-    else runs.push(seg(mark.text, mark.role));
+    if (last && last.role === mark.role && last.bg === mark.bg) runs[runs.length - 1] = { ...last, text: last.text + mark.text };
+    else runs.push(mark.bg ? { ...seg(mark.text, mark.role), bg: mark.bg } : seg(mark.text, mark.role));
   }
   return runs;
 }

@@ -1,4 +1,4 @@
-import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
+import type { Theme, ThemeColor, ThemeStyle } from "@earendil-works/pi-coding-agent";
 import { type Color, colorToOkhsl, mixColors, okhslColor, rgbColor } from "@earendil-works/pi-tui";
 import type { ColorMode } from "../config.ts";
 import { PART_NAMES, type PartName, type ThinkingLevel } from "../state/snapshot.ts";
@@ -135,6 +135,8 @@ export class Palette {
   readonly mode: ColorMode;
   private readonly theme: Theme;
   private readonly roles = new Map<Role, Foreground>();
+  /** Roles that may also paint a background. None in mono, where the track is a pattern, not a colour. */
+  private readonly backgrounds = new Map<Role, Color>();
 
   constructor(theme: Theme, mode: ColorMode) {
     this.theme = theme;
@@ -181,7 +183,9 @@ export class Palette {
     }
     for (const [part, panel] of Object.entries(PART_PANELS) as [PartName, PanelRole][]) set(`part:${part}`, panelColor(panel));
     set("part:other", "muted");
-    set("track", mixColors(panelColor("context"), colors.borderMuted, TRACK_MIX, MIX_SPACE));
+    const track = mixColors(panelColor("context"), colors.borderMuted, TRACK_MIX, MIX_SPACE);
+    set("track", track);
+    this.backgrounds.set("track", track);
     // Usage figures reuse the panel hues: input blue, output violet, cache cyan, cost orange.
     set("input", panelColor("session"));
     set("output", panelColor("workspace"));
@@ -192,8 +196,13 @@ export class Palette {
   paint(part: Seg): string {
     if (part.text === "") return "";
     const foreground = part.role === undefined ? undefined : this.roles.get(part.role);
-    if (foreground === undefined) return part.bold ? this.theme.bold(part.text) : part.text;
-    return this.theme.style(part.text, part.bold ? { fg: foreground, bold: true } : { fg: foreground });
+    const background = part.bg === undefined ? undefined : this.backgrounds.get(part.bg);
+    if (foreground === undefined && background === undefined) return part.bold ? this.theme.bold(part.text) : part.text;
+    const style: ThemeStyle = {};
+    if (foreground !== undefined) style.fg = foreground;
+    if (background !== undefined) style.bg = background;
+    if (part.bold) style.bold = true;
+    return this.theme.style(part.text, style);
   }
 
   paintLine(line: Line): string {

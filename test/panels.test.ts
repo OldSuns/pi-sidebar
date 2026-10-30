@@ -10,7 +10,7 @@ import { Palette } from "../src/ui/palette.ts";
 import { buildPanel, type Tier, wrapNames } from "../src/ui/panels.ts";
 import type { Action, Row } from "../src/ui/rows.ts";
 import { bodyRows, headerRows, PanelsView, type SidebarModel, type SidebarView } from "../src/ui/sidebar.ts";
-import { elideEnd, elideStart, fit, lineWidth, seg, truncatePlain } from "../src/ui/text.ts";
+import { bar, elideEnd, elideStart, fit, lineWidth, seg, truncatePlain } from "../src/ui/text.ts";
 import { fakeTheme, NOW, sampleSnapshot, testView } from "./helpers.ts";
 
 /** Column width after the edge (28 - 2, 36 - 1) and the content width inside it. */
@@ -409,4 +409,17 @@ test("palette: mono and the muted breakdown part", () => {
   new Palette(theme, "mono").paint(seg("x", "session"));
   new Palette(theme, "theme").paint(seg("x", "part:other"));
   assert.deepEqual(seen, ["text", "muted"]);
+});
+
+test("context bar: the track colour fills the rest of the partial cell, in colour only", () => {
+  const parts = bar(43.75, undefined, 10, "ok", glyphsFor("unicode", "theme").bar, 1);
+  assert.deepEqual(parts, [seg("████", "ok"), { text: "▍", role: "run", bg: "track" }, seg("█████", "track")]);
+  const backgrounds = (mode: "theme" | "mono") => {
+    const seen: unknown[] = [];
+    const theme = { ...recordingTheme(MOCHA_TOKENS).theme, style: (text: string, options: { bg?: unknown }) => (seen.push(options.bg), text) };
+    new Palette(theme as Theme, mode).paint(parts[1] ?? seg(""));
+    return seen;
+  };
+  assert.ok(backgrounds("theme")[0] !== undefined);
+  assert.deepEqual(backgrounds("mono"), [undefined]);
 });

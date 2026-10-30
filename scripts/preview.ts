@@ -69,11 +69,13 @@ const THEME = {
     return look.name;
   },
   colors: new Proxy({}, { get: (_target, token) => tokenColor(String(token)) }),
-  style(text: string, options: { fg?: string | Color; bold?: boolean }): string {
+  style(text: string, options: { fg?: string | Color; bg?: Color; bold?: boolean }): string {
     const fg = options.fg === undefined ? undefined : colorToRgb(typeof options.fg === "string" ? tokenColor(options.fg) : options.fg);
+    const bg = options.bg === undefined ? undefined : colorToRgb(options.bg);
     const sgr = fg ? `\u001b[38;2;${Math.round(fg.r)};${Math.round(fg.g)};${Math.round(fg.b)}m` : "";
-    const open = `${sgr}${options.bold ? "\u001b[1m" : ""}`;
-    const close = `${options.bold ? "\u001b[22m" : ""}${fg ? "\u001b[39m" : ""}`;
+    const bgSgr = bg ? `\u001b[48;2;${Math.round(bg.r)};${Math.round(bg.g)};${Math.round(bg.b)}m` : "";
+    const open = `${sgr}${bgSgr}${options.bold ? "\u001b[1m" : ""}`;
+    const close = `${options.bold ? "\u001b[22m" : ""}${bg ? "\u001b[49m" : ""}${fg ? "\u001b[39m" : ""}`;
     return `${open}${text}${close}`;
   },
   bold: (text: string) => `\u001b[1m${text}\u001b[22m`,
