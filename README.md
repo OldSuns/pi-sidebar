@@ -2,7 +2,7 @@
 
 A sidebar for [Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)'s fullscreen TUI. It sits to the right of the conversation and shows the session at a glance: what fills the context, what it has cost, what the agent is doing, and where the repository stands. Pi's main window keeps its behaviour; it only gets narrower.
 
-![The sidebar beside a Pi conversation, catppuccin mocha](./docs/design/preview/pi-fullscreen-mocha.png)
+![The sidebar beside a Pi conversation, catppuccin mocha](https://raw.githubusercontent.com/OldSuns/pi-sidebar/main/docs/design/preview/pi-fullscreen-mocha.png)
 
 ## What it shows
 
@@ -25,11 +25,8 @@ SESSION and CONTEXT stay pinned at the top; the other panels scroll under them.
 
 ## Install
 
-Not on npm yet. From a checkout:
-
 ```bash
-pi -e ./src/index.ts            # try it for one run
-pi install /path/to/pi-sidebar  # install it
+pi install npm:@oldsuns/pi-sidebar
 ```
 
 ## Use
