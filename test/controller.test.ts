@@ -187,8 +187,8 @@ test("a run: tools, time to first token, a sampled streaming estimate, final spe
   assert.deepEqual(controller.errors, []);
 });
 
-test("the breakdown follows the latest request, and between requests keeps that request's prompt and tools", () => {
-  const { controller, ctx } = harness();
+test("turn and run end keep the last pre-provider breakdown until a new request is observed", () => {
+  const { controller, ctx, state } = harness();
   controller.start(ctx);
   controller.onRequestContext([
     { role: "system", content: "p".repeat(800), toolsAdded: [{ name: "read", description: "Read a file", parameters: {} }] },
@@ -196,9 +196,33 @@ test("the breakdown follows the latest request, and between requests keeps that 
   ]);
   const request = controller.snapshot.composition;
   assert.deepEqual([request?.source, request?.parts.system, request?.parts.messages], ["request", 200, 10]);
+  state.messages = [{ role: "user", content: "u".repeat(160_000) }];
   controller.onTurnEnd(ctx);
-  const session = controller.snapshot.composition;
-  assert.deepEqual([session?.source, session?.parts.system, session?.parts.tools, session?.parts.messages], ["session", 200, request?.parts.tools, 30]);
+  assert.deepEqual(controller.snapshot.composition, request);
+  controller.onAgentSettled(false, ctx);
+  assert.deepEqual(controller.snapshot.composition, request);
+  controller.onCompactEnd(ctx);
+  assert.deepEqual(controller.snapshot.composition, request);
+  assert.match(controller.statusText(), /breakdown estimated from the last pre-provider transcript/);
+  controller.onRequestContext([{ role: "user", content: "u".repeat(80) }]);
+  assert.equal(controller.snapshot.composition?.parts.messages, 20);
+});
+
+test("changing branch, model or session falls back to that scope's local history", () => {
+  const { controller, ctx } = harness();
+  controller.start(ctx);
+  const request = [{ role: "system", content: "p".repeat(800) }, { role: "user", content: "short" }];
+  for (const reset of [
+    () => controller.onSessionTree(ctx),
+    () => controller.onModelSelect({ ...ctx.model, id: "other" } as ExtensionContext["model"], ctx),
+    () => controller.start(ctx),
+  ]) {
+    controller.onRequestContext(request);
+    reset();
+    const composition = controller.snapshot.composition;
+    assert.deepEqual([composition?.source, composition?.parts.system, composition?.parts.messages], ["session", 100, 30]);
+    assert.match(controller.statusText(), /breakdown estimated from local history/);
+  }
 });
 
 test("a failing read is reported and leaves the rest of the snapshot current", () => {

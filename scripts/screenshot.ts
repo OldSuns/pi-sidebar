@@ -49,11 +49,11 @@ interface StateSpec {
 }
 const STATE_PROMPT = "Which files does the GIT panel read, and how often?";
 const STATE_REPLY = "It reads git status and git diff, and refreshes on events and every 15 s while idle.";
-/** The same exchange is 2 988 tokens; these windows put it at 74.7% and 89.2%, as §6.6 describes. */
+/** One exchange uses about 1.4k tokens in Pi 1.6.0; these windows put it in the §6.6 bands. */
 const STATES: Record<string, StateSpec> = {
   normal: { caption: "normal", window: 200_000 },
-  warning: { caption: "warning, 70% or more", window: 4_000, reserve: 500 },
-  danger: { caption: "danger, 85% or more", window: 3_350, reserve: 500 },
+  warning: { caption: "warning, 70% or more", window: 1_800, reserve: 100 },
+  danger: { caption: "danger, 85% or more", window: 1_550, reserve: 100 },
   "compaction-off": { caption: "auto-compaction off", window: 200_000, compaction: false },
   "no-window": { caption: "no context window", window: 0 },
 };

@@ -126,10 +126,7 @@ export function compositionFromRequest(messages: readonly unknown[], estimate: E
   return compose({ system, tools, messages, estimate, source: "request" });
 }
 
-/**
- * From the session between requests: the active branch, plus the system prompt and tool declarations
- * of the latest request when there was one, else Pi's current prompt and active tool schemas.
- */
+/** Fallback from the active branch, with Pi's current system prompt and active tool schemas. */
 export function compositionFromSession(
   messages: readonly unknown[],
   system: number | undefined,

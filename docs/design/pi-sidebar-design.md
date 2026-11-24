@@ -38,7 +38,7 @@
 | F11 | 编辑器下方的 widget 容器不加空行 | `interactive-mode.js:1938-1951` | 0 行 HostProbe 放在这里，主窗口无变化 |
 | F14 | 退出时打印 transcript 不经过布局根 | `interactive-mode.js:596-603` | 退出输出不混入侧栏 |
 | F16 | footer 统计 token 和费用时遍历全部条目；命中率取最近一条 assistant | `components/footer.js:96-115` | 用同一口径，增量扫描 |
-| F26 | `context_with_system` 在全部 `context` 处理器之后运行，拿到含 `content`、`sections`、`toolsAdded` 的 system 消息；不返回结果时消息原样发出 | `runner.js:1001-1044` | 成分按请求时的真实内容估算，只读不改 |
+| F26 | `context_with_system` 在全部 `context` 处理器之后运行，拿到含 `content`、`sections`、`toolsAdded` 的 system 消息；侧栏不返回结果，不改变后续处理器收到的消息 | `runner.js:1019-1055` | 能估算观察时的请求成分，无法确认后续处理器或代理会不会再改写 |
 | F27 | 鼠标按下派发给指针下最深组件的 `handleMouse`；接管按下后抬起收到 `click` 且不开始选区；只有 `focus: true` 移动焦点 | `tui-alt-screen.js:644-676,707-772` | 只接管可点击的行，从不请求焦点 |
 | F28 | `estimateTokens()` 从包入口导出：字符数 / 4 向上取整，图片按 4800；不认识的角色返回 0；工具参数未到时抛错 | `compaction.js:182-252` | 成分与 Pi 同一口径，异常时同规则兜底 |
 | F31 | `pi.exec` 以 `shell: false` 启动，只支持 `cwd`、`timeout`、`signal` | `exec.js:10-73` | git 加固只能靠命令行参数（SEC-1） |
@@ -87,7 +87,7 @@ TuiAltScreen.layoutRoot
 从窄往宽时 96 列出现 28 列侧栏，150 列升到 36。36 列内容宽 31，28 列内容宽 26。终端不足 28 行时 SESSION 与 CONTEXT 合并成 3 行紧凑框，不足 12 行只显示它。
 
 - **侧栏内部**：`PanelsView` 渲染成行并缓存 `(快照版本, 宽度, 设置版本, 调色板)`；`EdgeFiller` 只在 28 宽填充到底；两者包在 `SidebarScroll`（覆写 `scrollBy` 总返回 0），滚轮不带动对话区（F9）。面板是纯函数 `(snapshot, view, tier, width) => Panel`，框线与标题线统一绘制。
-- **鼠标**：`PanelsView` 实现 `handleMouse`（F27），只在带动作的行接管左键按下，`clickCount === 1` 才执行，从不返回 `focus: true`；其余行照常选字。点击标题折叠或展开（保存 `folded`），点 `▸ Breakdown` 展开成分明细（保存），点 `… N more`、`▸ names` 展开列表（只在本会话有效）。
+- **鼠标**：`PanelsView` 实现 `handleMouse`（F27），只在带动作的行接管左键按下，`clickCount === 1` 才执行，从不返回 `focus: true`；其余行照常选字。点击标题折叠或展开（保存 `folded`），点成分估算行（`Pre-provider` 或 `Local history`）展开明细（保存），点 `… N more`、`▸ names` 展开列表（只在本会话有效）。
 
 ### 3.3 数据流
 
@@ -178,12 +178,12 @@ mouse click ─► handleMouse ─► controller.act(action) ─► 设置 / 展
 - **D-6 计费类型**：`isUsingOAuth(model)` 为 true 显示 `subscription`，否则 `metered`。
 - **D-7 落盘状态**：没有会话文件路径 `in-memory`；有路径但没有消息 `new`；否则 `saved`。
 - **D-8 节流**：快照每次变化都请求重绘；运行中两次至少间隔 `renderThrottleMs`（200ms），空闲时下一个 tick 合并。
-- **D-9 读取时机**：上下文、用量、存储状态在会话级事件和 `message_end`、`turn_end` 读；成分在会话开始、轮次结束、`agent_settled`、`session_tree`、压缩结束时按当前分支重算，并在 `context_with_system` 时按请求内容重算；分支数只在少数会话级事件遍历；工具在 `session_start`、`agent_start`、`turn_end`、`agent_settled`、`mcp_servers_change` 读。
+- **D-9 读取时机**：上下文、用量、存储状态在会话级事件和 `message_end`、`turn_end` 读；成分在 `context_with_system` 时按观察到的请求重算，轮次、运行或压缩结束不覆盖请求快照。会话开始、跳分支或切换模型时重置为本地估算；只有未观察到请求时，才在轮次、运行或压缩结束时刷新本地估算。分支数只在少数会话级事件遍历；工具在 `session_start`、`agent_start`、`turn_end`、`agent_settled`、`mcp_servers_change` 读。
 - **D-10 git**：一次刷新跑 `status --porcelain=v2 -z --branch` 和 `diff HEAD --numstat -z`，无提交时用 `diff --cached` 加 `diff`；二进制显示 `bin`，未跟踪显示 `new`；冲突最前、未跟踪最后，其余按增删行数之和降序。
 - **D-11 上下文成分**：
   - 六类：System（提示词及 sections）、Tools（工具定义）、Messages（文本、思考、工具调用名与参数）、Tool results、Summary、Other（自定义消息、未排除的用户 bash）；另计图片块数，`!!` 命令不计入。
-  - 每条消息用 `estimateTokens` 估算（F28）；返回 0 或抛错时按同一规则自己算。是估算不是分词器：数值带 `~`、标 `est`，进度条和 tokens / window 仍是真实数字；实测约为真实值的 86%（V16）。
-  - `context_with_system` 时 System 和 Tools 取自前导 system 消息，最准；请求之间消息取自当前分支投影，System 和 Tools 沿用最近一次请求的值。
+  - 每条消息用 `estimateTokens` 估算（F28）；返回 0 或抛错时按同一规则自己算。总数带 `~`，各项比例以该总数为分母；顶部进度条和 tokens / window 独立取自 Pi 的 `getContextUsage()`。
+  - `Pre-provider` 取最近一次 `context_with_system` 观察到的消息、系统提示和工具定义；只保存统计数字。后续处理器或代理仍可能改写，不能当作模型实际收到的内容。`Local history` 取当前分支投影、Pi 当前系统提示和启用的工具定义，不沿用旧请求的分项。
 - **D-12 首 token 与速度**：`before_provider_request` 记下请求时间，第一个 token 数大于 0 的 `message_update` 得出 TTFT；之后最多每 150 毫秒估算一次，显示 `~N tok/s`；`message_end` 用 `usage.output` 除以流式时长得出最终值，不足 0.25 秒保留估算。样本记入本次运行，两个以上显示 `Avg`。TTFT < 2 秒、≥ 50 tok/s 为成功色；TTFT ≥ 5 秒、< 20 tok/s 为警告色。
 - **D-12a 工具计数**：本次运行的工具分成功、失败、取消；结束时仍在运行的，中止计取消，否则计失败。新运行开始时清零，最近工具保留。
 - **D-13 本次增量**：`agent_start` 记下基线，之后显示 `+N this run` 并把进度条末尾相应的格子染成强调色；切换会话、跳分支、压缩后重置。
@@ -263,7 +263,7 @@ mouse click ─► handleMouse ─► controller.act(action) ─► 设置 / 展
 | 面板 | 28 列（内容 26） | 36 列（内容 31） |
 |---|---|---|
 | SESSION | 名称；状态与计时；模型 + 思考级别 | 再加 provider + 计费类型 |
-| CONTEXT | 进度条 + 百分比；tokens / window + 增量；Breakdown 取整 | 增量带 `this run`；阈值行；接近阈值提示；Breakdown 一位小数并标 `est` |
+| CONTEXT | 进度条 + 百分比；tokens / window + 增量；成分占比取整 | 增量带 `this run`；阈值行；接近阈值提示；成分占比保留一位小数 |
 | USAGE | `in` / `out` 一行；命中率与费用一行 | 四项各一行 |
 | ACTIVITY | 上次运行；最多 2 个工具不带参数；计数放不下用 `✓ ✗ ○`；TTFT/TPS 与 Avg | 最多 `recentTools` 个工具带参数；计数写全 |
 | GIT | `⎇ 分支  ↑1`；`N changed ▸  +a −r`，点开才列文件 | 加上游名、按状态计数、前 `git.maxFiles` 个文件 |
@@ -361,7 +361,7 @@ Pi 内置 light 主题（面板色不够区分时改用自带色相、跟随主�
 
 ![上下文面板的五种状态](./preview/context-states-mocha.png)
 
-五个画面来自同一个会话、同一个位置。窗口设成 200k、4k、3.4k，让同一个上下文落进 (a)–(c) 的区间；(d) 在隔离设置里把 `compaction.enabled` 设为 false；(f) 的模型没有 `contextWindow`。(e) 需要一次真实压缩，没有截图。
+五个画面来自各自隔离的 Pi 会话，使用同一次问答。调整模型窗口让同一个上下文落进 (a)–(c) 的区间；(d) 把 `compaction.enabled` 设为 false；(f) 的模型没有 `contextWindow`。(e) 需要一次真实压缩，没有截图。
 
 ### 6.7 诊断输出：`/sidebar status`
 
@@ -371,7 +371,7 @@ size     width 36 (auto) · main 145 · terminal 181x56
 rules    auto · 36 if cols-36 >= 110, else 28 if cols-28 >= 64, else hidden · +4 cols to step up
 look     colors theme · icons unicode · theme catppuccin-tui-mocha
 panels   session, context, usage, activity, git, tools, workspace
-context  breakdown estimated from the latest request
+context  breakdown estimated from the last pre-provider transcript
 git      ok · 9 changed · refreshed <1m ago (172 ms) · polls every 15s while visible and idle
 host     layout root wrapped (owner ok) · mounts 1 · remounts 0 · conflicts 0 · probe frames 63
 config   ~/.pi/agent/pi-sidebar.json
@@ -392,7 +392,7 @@ errors   none
 | R4 | 第三方主窗口组件按终端宽度渲染；选区与搜索行为跟推断不符 | V11、V1–V3 实测；有问题反馈给对应扩展，不修补 |
 | R5 | 主题颜色相近；符号被显示成双宽 | `theme` 自动换自带色相（R-4）；`/sidebar colors vivid`；`/sidebar icons ascii` |
 | R6 | 大仓库或大会话变慢，git 与 agent 抢锁 | 超时、串行、防抖、退避；增量扫描（PERF-3、PERF-4） |
-| R7 | 成分估算与模型实际计数有偏差 | 标 `~` 和 `est`；真实数字仍在旁边；优先按请求内容估算 |
+| R7 | 成分估算与 Pi 的上下文占用不是同一口径 | 标 `~` 和来源；成分占比不按进度条缩放 |
 | R8 | 点击与其他鼠标功能冲突；左右分栏的合成开销 | 只接管带动作的行；每行一个盒子（PERF-6）；V10、V15 实测 |
 
 ### 7.2 验证清单
@@ -416,7 +416,7 @@ V1–V3 和 V11 检查"主窗口不变"，是发布硬门槛。实机指 Orca �
 | V13 | git 各场景正确，agent 执行 git 期间无锁冲突 | 实机加集成测试 | 工具结束后刷新、空闲轮询 ✅；冲突、分离 HEAD、重命名、二进制、子目录 ✅；大仓库待测 |
 | V14 | 颜色：不同终端、主题、256 色、`NO_COLOR` | 实机；截图 | mocha 实机 ✅；Pi light、dark 截图 ✅；浅色终端、256 色、`NO_COLOR` 待测 |
 | V15 | 鼠标：折叠、展开列表、焦点仍在编辑器、其余行能选字 | 实机；截图 | 注入点击 ✅；真实鼠标与选字待测 |
-| V16 | 成分估算与真实上下文 tokens 一致 | 实机 | 估算 28.1k，真实 32.6k，约 86% ✅ |
+| V16 | 成分估算与 Pi 的上下文占用分别显示 | 实机 | 当次估算 28.1k，Pi 报告 32.6k；比例不是通用误差范围 |
 | V17 | 用量、运行时长、指标与 footer 一致 | 实机 | 上下文 3.1% / 32.6k（footer 3.1% / 33k）；输入 32.1k；缓存读 59.5k；命中率 94%；上次运行 19.6s ✅ |
 
 ### 7.3 性能基准

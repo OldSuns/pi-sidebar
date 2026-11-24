@@ -207,9 +207,10 @@ function contextPanel(snapshot: SidebarSnapshot, view: PanelView, tier: Tier, wi
 function breakdownRows(composition: Composition | undefined, view: PanelView, tier: Tier, width: number): Row[] {
   const { g } = view;
   const open = view.expanded.breakdown;
-  const total = composition ? `~${formatTokens(composition.total)}${tier === "normal" ? " est" : ""}` : g.none;
+  const label = !composition ? "Breakdown" : composition.source === "request" ? "Pre-provider" : "Local history";
+  const total = composition ? `~${formatTokens(composition.total)}` : g.none;
   const header = row(
-    lr([seg(`${open ? g.unfolded : g.folded} `, "context"), seg("Breakdown", "label")], [seg(total, "faint")], width, g.ellipsis),
+    lr([seg(`${open ? g.unfolded : g.folded} `, "context"), seg(label, "label")], [seg(total, "faint")], width, g.ellipsis),
     toggleAction("breakdown"),
   );
   if (!open || !composition) return [header];

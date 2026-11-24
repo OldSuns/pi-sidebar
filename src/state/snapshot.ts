@@ -82,7 +82,7 @@ export interface Composition {
   parts: Record<PartName, number | undefined>;
   total: number;
   images: number;
-  /** "request": the transcript of the latest model request; "session": the active branch. */
+  /** "request": the last observed pre-provider transcript; "session": local history on the active branch. */
   source: "request" | "session";
 }
 

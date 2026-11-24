@@ -50,7 +50,7 @@ Everything is a `/sidebar` command. Each one applies at once and is saved in `~/
 With the mouse:
 
 - Click a panel title to fold or unfold the panel.
-- Click `▸ Breakdown`, `… N more` or `▸ names` to open a list; click the same row or `▴ fewer` to close it.
+- Click the context breakdown row (`Pre-provider` or `Local history`), `… N more` or `▸ names` to open a list; click the same row or `▴ fewer` to close it.
 - The wheel scrolls the lower panels. Nowhere over the sidebar does it move the conversation.
 
 The sidebar never takes keyboard focus, and selecting text elsewhere works as before.
@@ -83,7 +83,9 @@ Pi has no sidebar API, but in fullscreen mode it draws a layout tree. The extens
 
 It does not replace or decorate the editor, footer or header, opens no overlays or dialogs, registers no shortcuts or input listeners, and never writes to the session; `npm run rules` checks the source for those calls.
 
-The context breakdown counts each message with Pi's own `estimateTokens`, so it follows the rule Pi uses for its context. It is an estimate and marked as one; the bar and the token count beside it are Pi's real figures.
+The context bar and tokens / window come from Pi's `getContextUsage()`. The breakdown estimates the parts separately with Pi's `estimateTokens`; its percentages are shares of its own `~` total, not of the bar above it.
+
+`Pre-provider` keeps the last transcript the sidebar saw in `context_with_system`, even after the reply ends. Later handlers or downstream proxies can still change what the model receives. Until the sidebar observes a request in the current session, branch and model, `Local history` estimates the active branch with Pi's current system prompt and active tool definitions.
 
 A multi-column layout costs pi-tui some work per frame: it merges every box narrower than the terminal into its row. Each sidebar row is drawn by a single box to keep that cost low (about 5 ms per frame at 181×56 on a laptop; `npm run bench`). With the sidebar hidden, Pi's layout is drawn exactly as before.
 
