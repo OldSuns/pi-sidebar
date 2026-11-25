@@ -105,15 +105,22 @@ test("28 columns: title rules, abbreviated labels, git counts only, two tools wi
   lacks(text, ["╭", "anthropic", "origin/main", "Auto-compact", "src/state", "npm test", "this run"]);
 });
 
-test("context breakdown: a colour bar and one row per part, closed with a click on its first row", () => {
-  const open = render(sampleSnapshot(), "normal");
-  contains(open, ["▾ Breakdown", "~74.1k est", "System", "~4.2k", "5.7%", "Tool results", "~29.8k", "40.2%", "Images", "Other"]);
-  lacks(open, ["Summary"]);
-  const closed = render(sampleSnapshot(), "normal", opened({ breakdown: false }));
-  contains(closed, ["▸ Breakdown", "~74.1k est"]);
-  lacks(closed, ["Tool results", "Images"]);
-  const header = rowsOf(sampleSnapshot(), "normal").find((line) => rowText(line).includes("Breakdown"));
-  assert.deepEqual(header?.action, { type: "toggle", key: "breakdown" });
+test("breakdown shows its source at both widths, even when closed", () => {
+  const snapshot = sampleSnapshot();
+  const local = sampleSnapshot({ composition: { ...snapshot.composition!, source: "session" } });
+  for (const { tier } of TIERS) {
+    const open = render(snapshot, tier);
+    contains(open, ["▾ Pre-provider", "~74.1k", "System", "~4.2k", "Tool results", "~29.8k", "Images", "Other"]);
+    lacks(open, ["Summary", "Local history"]);
+    contains(open, tier === "normal" ? ["5.7%", "40.2%"] : ["6%", "40%"]);
+    const closed = render(snapshot, tier, opened({ breakdown: false }));
+    contains(closed, ["▸ Pre-provider", "~74.1k"]);
+    lacks(closed, ["Tool results", "Images"]);
+    contains(render(local, tier), ["▾ Local history", "~74.1k"]);
+    contains(render(local, tier, opened({ breakdown: false })), ["▸ Local history", "~74.1k"]);
+    const header = rowsOf(snapshot, tier).find((line) => rowText(line).includes("Pre-provider"));
+    assert.deepEqual(header?.action, { type: "toggle", key: "breakdown" });
+  }
 });
 
 test("breakdown legend: marks that leave a gap between rows, the bar's own patterns without colour", () => {
@@ -272,7 +279,7 @@ test("ascii icons: every line is plain ASCII", () => {
   for (const { tier } of TIERS) {
     for (const line of render(sampleSnapshot(), tier, view).split("\n")) assert.match(line, /^[\x20-\x7e]*$/, `non-ASCII in "${line}"`);
   }
-  contains(render(sampleSnapshot(), "normal", view), ["+- * SESSION", "* READY", "git: main", "^1 origin/main", "+86 -47", "v Breakdown"]);
+  contains(render(sampleSnapshot(), "normal", view), ["+- * SESSION", "* READY", "git: main", "^1 origin/main", "+86 -47", "v Pre-provider"]);
 });
 
 test("panels turned off are left out; the pinned ones stay", () => {
@@ -287,7 +294,7 @@ test("a low terminal merges SESSION and CONTEXT into one block", () => {
   const text = rows.map(rowText).join("\n");
   assert.equal(rows.length, 6);
   contains(text, ["READY", "claude-sonnet-5-5", "38.2%"]);
-  lacks(text, ["CONTEXT", "refactor-session-tree", "Breakdown"]);
+  lacks(text, ["CONTEXT", "refactor-session-tree", "Pre-provider"]);
 });
 
 function mouse(type: TuiMouseEvent["type"], y: number, clickCount?: number): TuiMouseEvent {

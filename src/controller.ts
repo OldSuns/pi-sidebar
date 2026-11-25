@@ -120,8 +120,6 @@ export class SidebarController implements SidebarModel, SidebarActions {
   private usage: UsageScan = startScan();
   /** Context tokens when the current or last run started; the base of "+N this run". */
   private deltaBase?: number;
-  /** System prompt and tool declarations as the latest model request carried them. */
-  private requestParts?: { system?: number; tools?: number };
   private requestStartedAt?: number;
   private firstTokenAt?: number;
   private responseTtft?: number;
@@ -209,7 +207,6 @@ export class SidebarController implements SidebarModel, SidebarActions {
     this.paletteCache = undefined;
     this.width = 0;
     this.deltaBase = undefined;
-    this.requestParts = undefined;
     this.requestStartedAt = undefined;
     this.firstTokenAt = undefined;
     this.responseTtft = undefined;
@@ -259,7 +256,7 @@ export class SidebarController implements SidebarModel, SidebarActions {
 
   onTurnEnd(ctx: ExtensionContext): void {
     this.handle("turn_end", () => {
-      const data = this.collect(ctx, { composition: true, tools: true });
+      const data = this.collect(ctx, { composition: this.store.snapshot.composition?.source !== "request", tools: true });
       const queued = ctx.hasPendingMessages();
       this.store.update((s) => ({ ...data, activity: { ...s.activity, queued } }));
     });
@@ -281,7 +278,7 @@ export class SidebarController implements SidebarModel, SidebarActions {
       this.firstTokenAt = undefined;
       this.git?.setBusy(false);
       this.git?.request();
-      const data = this.collect(ctx, { composition: true, history: true, tools: true });
+      const data = this.collect(ctx, { composition: this.store.snapshot.composition?.source !== "request", history: true, tools: true });
       const queued = ctx.hasPendingMessages();
       this.store.update(
         (s) => ({ ...data, session: { ...s.session, ...statusOf(this.flags) }, activity: { ...endRun(s.activity, now, aborted), queued } }),
@@ -347,11 +344,10 @@ export class SidebarController implements SidebarModel, SidebarActions {
     });
   }
 
-  /** The transcript of a model request, after every context transform (`context_with_system`). Read only. */
+  /** The transcript seen before provider payload rewriting (`context_with_system`). Read only. */
   onRequestContext(messages: readonly unknown[]): void {
     this.handle("context_with_system", () => {
       const composition = compositionFromRequest(messages, this.estimate);
-      this.requestParts = { system: composition.parts.system, tools: composition.parts.tools };
       this.store.update(() => ({ composition }));
     });
   }
@@ -381,7 +377,8 @@ export class SidebarController implements SidebarModel, SidebarActions {
       const info = readModel(model, this.pi.getThinkingLevel());
       const billing = this.attempt("billing", () => readBilling(ctx, model));
       const context = this.readContext(ctx, model);
-      this.store.update((s) => ({ session: { ...s.session, ...info, billing }, context }));
+      const composition = this.sessionComposition(ctx);
+      this.store.update((s) => ({ session: { ...s.session, ...info, billing }, context, composition }));
     });
   }
 
@@ -421,7 +418,7 @@ export class SidebarController implements SidebarModel, SidebarActions {
     this.handle("session_compact", () => {
       this.flags = { ...this.flags, compacting: false };
       this.deltaBase = undefined;
-      const data = this.collect(ctx, { composition: true, history: true });
+      const data = this.collect(ctx, { composition: this.store.snapshot.composition?.source !== "request", history: true });
       this.store.update((s) => ({ ...data, session: { ...s.session, ...statusOf(this.flags) } }));
       this.updateTicker();
     });
@@ -457,10 +454,7 @@ export class SidebarController implements SidebarModel, SidebarActions {
     if (context) change.context = context.value;
     const workspace = this.attempt("workspace", () => this.readWorkspace(ctx, entries ?? [], refresh.history === true));
     if (workspace) change.workspace = workspace;
-    if (refresh.composition) {
-      const composition = this.attempt("breakdown", () => this.sessionComposition(ctx));
-      if (composition) change.composition = composition;
-    }
+    if (refresh.composition) change.composition = this.sessionComposition(ctx);
     if (refresh.tools) {
       const tools = this.readTools();
       if (tools) change.tools = tools;
@@ -486,12 +480,14 @@ export class SidebarController implements SidebarModel, SidebarActions {
     };
   }
 
-  /** The active branch between requests, with the prompt and tools of the latest request when known. */
+  /** Fallback for the active branch; never mixes in parts from an earlier request. */
   private sessionComposition(ctx: ExtensionContext): SidebarSnapshot["composition"] {
-    const messages = ctx.sessionManager.buildSessionProjection().messages;
-    const system = this.requestParts?.system ?? estimateText(ctx.getSystemPrompt());
-    const tools = this.requestParts?.tools ?? this.activeToolTokens();
-    return compositionFromSession(messages, system, tools, this.estimate);
+    return this.attempt("breakdown", () => compositionFromSession(
+      ctx.sessionManager.buildSessionProjection().messages,
+      estimateText(ctx.getSystemPrompt()),
+      this.activeToolTokens(),
+      this.estimate,
+    ));
   }
 
   private activeToolTokens(): number | undefined {
@@ -702,7 +698,7 @@ export class SidebarController implements SidebarModel, SidebarActions {
     const breakdown = !config.contextBreakdown
       ? "hidden"
       : composition
-        ? `estimated from the ${composition.source === "request" ? "latest request" : "active branch"}`
+        ? `estimated from ${composition.source === "request" ? "the last pre-provider transcript" : "local history"}`
         : "not yet estimated";
     return [
       headline,

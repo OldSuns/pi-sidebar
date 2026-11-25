@@ -36,8 +36,8 @@ const stateOut = option("--state-out");
 
 // ---- one CONTEXT panel per real state, for the gallery in the design doc ----
 // Each state needs its own model or settings, so `--states` starts one isolated Pi per state and
-// draws the panels it gets back into one image. Nothing is forged: the panel shows Pi's own context
-// usage, drawn by the sidebar in a real session.
+// draws the panels it gets back into one image. Warning and danger pin the scripted provider's
+// reported usage; Pi computes the context percentage and the sidebar renders it in a real session.
 interface StateSpec {
   caption: string;
   /** Context window of the scripted model; 0 leaves the model without one. */
@@ -46,14 +46,16 @@ interface StateSpec {
   compaction?: boolean;
   /** Tokens kept free by auto-compaction; the default 16384 does not fit a small window. */
   reserve?: number;
+  /** Fixed provider-reported total, independent of Pi's prompt and the scripted exchange. */
+  tokens?: number;
 }
 const STATE_PROMPT = "Which files does the GIT panel read, and how often?";
 const STATE_REPLY = "It reads git status and git diff, and refreshes on events and every 15 s while idle.";
-/** The same exchange is 2 988 tokens; these windows put it at 74.7% and 89.2%, as §6.6 describes. */
+/** Design §6.6: 75% and 90% usage, both below the 95% auto-compaction threshold. */
 const STATES: Record<string, StateSpec> = {
   normal: { caption: "normal", window: 200_000 },
-  warning: { caption: "warning, 70% or more", window: 4_000, reserve: 500 },
-  danger: { caption: "danger, 85% or more", window: 3_350, reserve: 500 },
+  warning: { caption: "warning, 70% to under 85%", window: 20_000, reserve: 1_000, tokens: 15_000 },
+  danger: { caption: "danger, 85% or more", window: 20_000, reserve: 1_000, tokens: 18_000 },
   "compaction-off": { caption: "auto-compaction off", window: 200_000, compaction: false },
   "no-window": { caption: "no context window", window: 0 },
 };
@@ -208,7 +210,18 @@ function stream(model: Model<Api>, context: TranscriptContext, options?: SimpleS
     await sleep(ttft);
     await options?.onResponse?.({ status: 200, headers: {} }, model);
     for await (const event of core.streamSimple(model, context, options)) {
-      if (event.type === "done") event.message.usage.cost = ai.calculateCost(model, event.message.usage);
+      if (event.type === "done") {
+        if (state?.tokens !== undefined) {
+          event.message.usage = {
+            ...event.message.usage,
+            input: state.tokens - event.message.usage.output,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: state.tokens,
+          };
+        }
+        event.message.usage.cost = ai.calculateCost(model, event.message.usage);
+      }
       out.push(event);
     }
     out.end();
@@ -273,8 +286,12 @@ if (state) core.setResponses([ai.fauxAssistantMessage(STATE_REPLY)]);
 // ---- a helper extension: registers the model, reaches the TUI, captures frames ----
 
 let tui: TUI | undefined;
+let stateCompactionStarted = false;
 function helper(api: ExtensionAPI): void {
   api.registerProvider(provider);
+  api.on("session_before_compact", () => {
+    stateCompactionStarted = true;
+  });
   // The script expects every tool call to succeed; a failure is a problem of the scenario.
   api.on("tool_execution_end", (event) => {
     if (event.isError) console.error(`\n${event.toolName} failed: ${JSON.stringify(event.result).slice(0, 400)}`);
@@ -667,10 +684,28 @@ try {
   await run("start Pi", () => until("the sidebar", has("SESSION")));
 
   if (state) {
-    // One exchange is enough: the model's window is what makes the state.
+    // Design §6.6: one exchange, with fixed provider usage for warning and danger.
     await enter(STATE_PROMPT);
     await until("the run to start", has("WORKING"), 20_000);
-    const answered = await run("the reply", () => until("the answer", has("READY"), 60_000));
+    const answered = await run("the reply", () =>
+      until("the answer", (lines) => has("READY")(lines) && !runtime.session.isStreaming && !runtime.session.isCompacting, 60_000),
+    );
+    if (stateName === "warning" || stateName === "danger") {
+      const usage = runtime.session.getContextUsage();
+      const min = stateName === "warning" ? 70 : 85;
+      const max = stateName === "warning" ? 85 : 100;
+      if (!usage || usage.tokens === null || usage.percent === null || usage.percent < min || usage.percent >= max) {
+        throw new Error(`${stateName}: expected ${min}% <= usage < ${max}%, got ${JSON.stringify(usage)}`);
+      }
+      if (usage.tokens !== state.tokens) {
+        throw new Error(`${stateName}: expected provider usage of ${state.tokens} tokens, got ${usage.tokens}`);
+      }
+      const compactAt = state.window - (state.reserve ?? 16_384);
+      if (stateCompactionStarted || usage.tokens >= compactAt) {
+        throw new Error(`${stateName}: expected no compaction and usage below ${compactAt} tokens, got ${usage.tokens} (compaction started: ${stateCompactionStarted})`);
+      }
+      console.log(`${stateName}: ${usage.tokens}/${usage.contextWindow} tokens (${usage.percent.toFixed(1)}%), below compaction at ${compactAt}`);
+    }
     if (!stateOut) throw new Error("--state needs --state-out");
     writeFileSync(stateOut, JSON.stringify(contextBlock(answered)), "utf8");
     throw captured;
