@@ -309,7 +309,7 @@ mouse click ─► handleMouse ─► controller.act(action) ─► 设置 / 展
 ### 6.0 图从哪里来
 
 - 截图（`docs/design/preview/*.png`）由 `npm run screenshots` 从真实的 Pi 截取：Pi 的交互模式在虚拟终端里运行并加载本插件，模型按脚本回复（faux provider，带 TTFT 和流式速度）。home、agent 目录和项目都是临时的，不读写真实的 `~/.pi`，不联网；画面取自 pi-tui 自己的帧，再由 HTML 终端画出并存成 PNG。
-- 状态图（§6.6）另起一个隔离的 Pi 截每个状态：只调模型的上下文窗口或压缩设置，面板本身仍是真实渲染。
+- 状态图（§6.6）另起一个隔离的 Pi 截每个状态：调模型窗口、压缩设置及脚本 provider 上报的 usage；百分比由 Pi 计算，面板仍是真实渲染。
 
 ```bash
 npm run screenshots        # mocha 全部截图（含 §6.6 的状态图），另加 Pi light 的全屏图
@@ -361,7 +361,7 @@ Pi 内置 light 主题（面板色不够区分时改用自带色相、跟随主�
 
 ![上下文面板的五种状态](./preview/context-states-mocha.png)
 
-五个画面来自各自隔离的 Pi 会话，使用同一次问答。调整模型窗口让同一个上下文落进 (a)–(c) 的区间；(d) 把 `compaction.enabled` 设为 false；(f) 的模型没有 `contextWindow`。(e) 需要一次真实压缩，没有截图。
+五个画面来自各自隔离的 Pi 会话，使用同一次问答。(b)–(c) 的模型窗口固定为 20,000 tokens、压缩保留量为 1,000；脚本 provider 分别上报 15,000（75%）与 18,000（90%）tokens，均低于 19,000（95%）的自动压缩阈值。保存前校验 Pi 返回的 token 数、状态区间及未触发压缩，失败即停止生成状态图。(a) 使用 200,000-token 窗口；(d) 把 `compaction.enabled` 设为 false；(f) 的模型没有 `contextWindow`。(e) 需要一次真实压缩，没有截图。
 
 ### 6.7 诊断输出：`/sidebar status`
 

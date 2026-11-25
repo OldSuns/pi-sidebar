@@ -105,3 +105,5 @@ npm run bench              # timings of rendering, usage scans and the breakdown
 ```
 
 Tests and type checks use the packages of the installed Pi (`~/.pi/agent/install/releases/<version>/node_modules`), or the directory in `PI_NODE_MODULES`. CI installs Pi from npm and runs on Linux, Windows and macOS. The design is in [docs/design/pi-sidebar-design.md](./docs/design/pi-sidebar-design.md).
+
+The CONTEXT screenshot gallery fixes the scripted provider's reported usage at 75% for warning and 90% for danger, below the 95% auto-compaction threshold. Pi computes the percentages and the sidebar renders them. Generation fails if either state leaves its band, differs from the fixed token count, reaches the compaction threshold or starts compaction.
